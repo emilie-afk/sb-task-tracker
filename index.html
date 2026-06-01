@@ -210,30 +210,41 @@ textarea{resize:vertical;min-height:44px}
       </div>
 
       <div class="add-wrap" id="add-wrap">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:11px">
+        <!-- Header: title + single/bulk tabs (bulk = manager only) -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="add-ttl" id="add-ttl" style="margin-bottom:0">Add task</div>
-          <div style="display:flex;gap:4px">
+          <div id="add-tabs" style="display:flex;gap:4px">
             <button class="fchip on" id="tab-single" onclick="setAddTab('single')">Single</button>
             <button class="fchip" id="tab-bulk" onclick="setAddTab('bulk')">Bulk</button>
           </div>
         </div>
 
-        <!-- Shared fields (brand, assignee, type, repeat, due, kpi) -->
-        <div class="fg fg2" style="margin-bottom:8px">
-          <div><div class="fl">Brand</div><select id="f-brand"></select></div>
-          <div id="f-assignee-wrap"><div class="fl">Assign to</div><select id="f-assignee"></select></div>
+        <!-- Manager: assign to -->
+        <div id="f-assignee-wrap" style="margin-bottom:8px;display:none">
+          <div class="fl">Assign to</div>
+          <select id="f-assignee"></select>
         </div>
+
+        <!-- Brand -->
+        <div style="margin-bottom:8px">
+          <div class="fl">Brand</div>
+          <select id="f-brand"></select>
+        </div>
+
+        <!-- Type / Repeat / Due -->
         <div class="fg fg3" style="margin-bottom:8px">
           <div><div class="fl">Type</div><select id="f-type"><option value="routine">Routine</option><option value="adhoc">Ad hoc</option><option value="video">Video</option></select></div>
           <div><div class="fl">Repeat</div><select id="f-repeat"><option value="none">No repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
           <div><div class="fl">Due date</div><input type="date" id="f-due"></div>
         </div>
+
+        <!-- KPI / Note -->
         <div class="fg fg2" style="margin-bottom:8px">
           <div><div class="fl">Link to EOS KPI</div><select id="f-kpi"><option value="">— None —</option><option>SB Blogs (2/week)</option><option>SB Social media</option><option>SB Affiliate invites</option><option>SB Amazon A+ content</option><option>SB Instagram + Pinterest</option><option>Video content output</option><option>Hi An Influencer pipeline</option><option>ExpatMarket scripts/week</option></select></div>
           <div><div class="fl">Note</div><input type="text" id="f-note" placeholder="Optional context…"></div>
         </div>
 
-        <!-- Single task -->
+        <!-- Single: task title -->
         <div id="add-single-section">
           <div style="margin-bottom:8px">
             <div class="fl">Task title *</div>
@@ -245,13 +256,12 @@ textarea{resize:vertical;min-height:44px}
           </div>
         </div>
 
-        <!-- Bulk tasks -->
+        <!-- Bulk: one title per line (manager only) -->
         <div id="add-bulk-section" style="display:none">
           <div style="margin-bottom:8px">
             <div class="fl">Task titles — one per line *</div>
             <textarea id="f-bulk" placeholder="Write subscription blog&#10;Design topfan image&#10;Schedule social media posts" style="min-height:90px;width:100%;padding:7px 9px;border:0.5px solid #d0d0ca;border-radius:7px;font-size:12px;font-family:inherit;resize:vertical"></textarea>
           </div>
-          <div id="bulk-preview" style="font-size:11px;color:#888;margin-bottom:6px"></div>
           <div class="row-end">
             <button class="btn-g" onclick="closeAdd()">Cancel</button>
             <button class="btn-p" onclick="saveBulkTasks()">Save all tasks</button>
@@ -279,7 +289,7 @@ textarea{resize:vertical;min-height:44px}
 
       <div class="panel" id="kpi-panel">
         <div class="pt" style="display:flex;align-items:center;justify-content:space-between">
-          <span>KPI Scorecard</span>
+          <span>EOS Scorecard</span>
           <button class="btn-sm" id="add-kpi-btn" style="display:none" onclick="toggleAddKPI()">+ Add</button>
         </div>
         <div id="kpi-area"></div>
@@ -750,13 +760,18 @@ function setT(t,el){activeT=t;document.querySelectorAll('[data-t]').forEach(x=>x
 // ─────────────────────────────────────────────
 function openAdd() {
   document.getElementById('add-wrap').classList.add('open');
-  const mgr=session.role==='manager';
-  document.getElementById('add-ttl').textContent=mgr?'Assign task':'Add my task';
-  document.getElementById('f-assignee-wrap').style.display=mgr?'block':'none';
-  if(mgr) buildAssigneeSelect(); else document.getElementById('f-assignee').value=session.user;
-  if(activeBrand!=='all') document.getElementById('f-brand').value=activeBrand;
-  // Repeat is always visible — staff can choose too
-  document.getElementById('f-repeat').value='none';
+  const mgr = session.role === 'manager';
+  document.getElementById('add-ttl').textContent = mgr ? 'Assign task' : 'Add my task';
+  // Assign to — manager only
+  document.getElementById('f-assignee-wrap').style.display = mgr ? 'block' : 'none';
+  if (mgr) buildAssigneeSelect(); else document.getElementById('f-assignee').value = session.user;
+  // Bulk tab — manager only
+  document.getElementById('tab-bulk').style.display = mgr ? '' : 'none';
+  // Always start on single tab
+  setAddTab('single');
+  // Set brand
+  if (activeBrand !== 'all') document.getElementById('f-brand').value = activeBrand;
+  document.getElementById('f-repeat').value = 'none';
   document.getElementById('f-title').focus();
 }
 function closeAdd(){document.getElementById('add-wrap').classList.remove('open');}
@@ -1106,7 +1121,7 @@ function renderRight() {
           </div>
         </div>
       </div>`;
-    }).join('')+'<div style="font-size:10px;color:#bbb;margin-top:8px">Source: EOS Scorecard · Succulents Box + LIM</div>'
+    }).join('')+'<div style="font-size:10px;color:#bbb;margin-top:8px">EOS Scorecard · Succulents Box + LIM</div>'
   :'<div class="empty">No scorecard yet.<br><span style="font-size:10px">Manager can create one with + Add.</span></div>';
 
   if(mgr){
