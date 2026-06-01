@@ -161,6 +161,7 @@ textarea{resize:vertical;min-height:44px}
 
 .empty{text-align:center;color:#ccc;font-size:12px;padding:24px 0}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -209,67 +210,52 @@ textarea{resize:vertical;min-height:44px}
       </div>
 
       <div class="add-wrap" id="add-wrap">
-        <div class="add-ttl" id="add-ttl">Add task</div>
-        <div style="margin-bottom:8px">
-          <div class="fl">Task title *</div>
-          <input type="text" id="f-title" placeholder="What needs to be done?">
-        </div>
-        <div class="fg fg2">
-          <div>
-            <div class="fl">Brand</div>
-            <select id="f-brand"></select>
-          </div>
-          <div id="f-assignee-wrap">
-            <div class="fl">Assign to</div>
-            <select id="f-assignee"></select>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:11px">
+          <div class="add-ttl" id="add-ttl" style="margin-bottom:0">Add task</div>
+          <div style="display:flex;gap:4px">
+            <button class="fchip on" id="tab-single" onclick="setAddTab('single')">Single</button>
+            <button class="fchip" id="tab-bulk" onclick="setAddTab('bulk')">Bulk</button>
           </div>
         </div>
-        <div class="fg fg3">
-          <div>
-            <div class="fl">Type</div>
-            <select id="f-type">
-              <option value="routine">Routine</option>
-              <option value="adhoc">Ad hoc</option>
-              <option value="video">Video</option>
-            </select>
+
+        <!-- Shared fields (brand, assignee, type, repeat, due, kpi) -->
+        <div class="fg fg2" style="margin-bottom:8px">
+          <div><div class="fl">Brand</div><select id="f-brand"></select></div>
+          <div id="f-assignee-wrap"><div class="fl">Assign to</div><select id="f-assignee"></select></div>
+        </div>
+        <div class="fg fg3" style="margin-bottom:8px">
+          <div><div class="fl">Type</div><select id="f-type"><option value="routine">Routine</option><option value="adhoc">Ad hoc</option><option value="video">Video</option></select></div>
+          <div><div class="fl">Repeat</div><select id="f-repeat"><option value="none">No repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+          <div><div class="fl">Due date</div><input type="date" id="f-due"></div>
+        </div>
+        <div class="fg fg2" style="margin-bottom:8px">
+          <div><div class="fl">Link to EOS KPI</div><select id="f-kpi"><option value="">— None —</option><option>SB Blogs (2/week)</option><option>SB Social media</option><option>SB Affiliate invites</option><option>SB Amazon A+ content</option><option>SB Instagram + Pinterest</option><option>Video content output</option><option>Hi An Influencer pipeline</option><option>ExpatMarket scripts/week</option></select></div>
+          <div><div class="fl">Note</div><input type="text" id="f-note" placeholder="Optional context…"></div>
+        </div>
+
+        <!-- Single task -->
+        <div id="add-single-section">
+          <div style="margin-bottom:8px">
+            <div class="fl">Task title *</div>
+            <input type="text" id="f-title" placeholder="What needs to be done?">
           </div>
-          <div>
-            <div class="fl">Repeat</div>
-            <select id="f-repeat">
-              <option value="none">No repeat</option>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-            </select>
-          </div>
-          <div>
-            <div class="fl">Due date</div>
-            <input type="date" id="f-due">
+          <div class="row-end">
+            <button class="btn-g" onclick="closeAdd()">Cancel</button>
+            <button class="btn-p" onclick="saveTask()">Save task</button>
           </div>
         </div>
-        <div class="fg fg2">
-          <div>
-            <div class="fl">Link to EOS KPI</div>
-            <select id="f-kpi">
-              <option value="">— None —</option>
-              <option>SB Blogs (2/week)</option>
-              <option>SB Social media</option>
-              <option>SB Affiliate invites</option>
-              <option>SB Amazon A+ content</option>
-              <option>SB Instagram + Pinterest</option>
-              <option>Video content output</option>
-              <option>Hi An Influencer pipeline</option>
-              <option>ExpatMarket scripts/week</option>
-            </select>
+
+        <!-- Bulk tasks -->
+        <div id="add-bulk-section" style="display:none">
+          <div style="margin-bottom:8px">
+            <div class="fl">Task titles — one per line *</div>
+            <textarea id="f-bulk" placeholder="Write subscription blog&#10;Design topfan image&#10;Schedule social media posts" style="min-height:90px;width:100%;padding:7px 9px;border:0.5px solid #d0d0ca;border-radius:7px;font-size:12px;font-family:inherit;resize:vertical"></textarea>
           </div>
-          <div>
-            <div class="fl">Note</div>
-            <input type="text" id="f-note" placeholder="Optional context…">
+          <div id="bulk-preview" style="font-size:11px;color:#888;margin-bottom:6px"></div>
+          <div class="row-end">
+            <button class="btn-g" onclick="closeAdd()">Cancel</button>
+            <button class="btn-p" onclick="saveBulkTasks()">Save all tasks</button>
           </div>
-        </div>
-        <div class="row-end">
-          <button class="btn-g" onclick="closeAdd()">Cancel</button>
-          <button class="btn-p" onclick="saveTask()">Save task</button>
         </div>
       </div>
 
@@ -298,21 +284,45 @@ textarea{resize:vertical;min-height:44px}
         </div>
         <div id="kpi-area"></div>
         <div id="add-kpi-form" style="display:none;margin-top:10px;border-top:0.5px solid #f0f0ec;padding-top:10px">
-          <div style="margin-bottom:6px">
+          <!-- User selector -->
+          <div style="margin-bottom:8px">
             <div class="fl">For user</div>
             <select id="nk-user"></select>
           </div>
-          <div class="fg fg2" style="margin-bottom:6px">
-            <div><div class="fl">Metric name</div><input type="text" id="nk-metric" placeholder="e.g. Blogs"></div>
-            <div><div class="fl">Sub-metric</div><input type="text" id="nk-sub" placeholder="e.g. No. written"></div>
+          <!-- Mode tabs -->
+          <div style="display:flex;gap:5px;margin-bottom:10px">
+            <button class="fchip on" id="kpi-tab-manual" onclick="setKpiTab('manual')">Manual entry</button>
+            <button class="fchip" id="kpi-tab-excel" onclick="setKpiTab('excel')">Upload Excel</button>
           </div>
-          <div class="fg fg2" style="margin-bottom:6px">
-            <div><div class="fl">Target</div><input type="text" id="nk-target" placeholder="e.g. 2"></div>
-            <div><div class="fl">Note</div><input type="text" id="nk-note" placeholder="Optional"></div>
+
+          <!-- Manual entry -->
+          <div id="kpi-manual-section">
+            <div class="fg fg2" style="margin-bottom:6px">
+              <div><div class="fl">Metric name</div><input type="text" id="nk-metric" placeholder="e.g. Blogs"></div>
+              <div><div class="fl">Sub-metric</div><input type="text" id="nk-sub" placeholder="e.g. No. written"></div>
+            </div>
+            <div class="fg fg2" style="margin-bottom:6px">
+              <div><div class="fl">Target</div><input type="text" id="nk-target" placeholder="e.g. 2"></div>
+              <div><div class="fl">Note</div><input type="text" id="nk-note" placeholder="Optional"></div>
+            </div>
+            <div class="row-end">
+              <button class="btn-g" onclick="toggleAddKPI()">Cancel</button>
+              <button class="btn-p" onclick="saveNewKPI()">Add</button>
+            </div>
           </div>
-          <div class="row-end">
-            <button class="btn-g" onclick="toggleAddKPI()">Cancel</button>
-            <button class="btn-p" onclick="saveNewKPI()">Add</button>
+
+          <!-- Excel upload -->
+          <div id="kpi-excel-section" style="display:none">
+            <div style="border:1.5px dashed #e0e0da;border-radius:8px;padding:16px;text-align:center;cursor:pointer;margin-bottom:8px" onclick="document.getElementById('kpi-xlsx-input').click()">
+              <div style="font-size:13px;color:#888">Click to upload Excel (.xlsx)</div>
+              <div style="font-size:11px;color:#bbb;margin-top:3px">EOS scorecard format — columns A & B</div>
+              <input type="file" id="kpi-xlsx-input" accept=".xlsx,.xls" style="display:none" onchange="parseKpiExcel(this)">
+            </div>
+            <div id="kpi-excel-preview"></div>
+            <div class="row-end" style="margin-top:6px">
+              <button class="btn-g" onclick="toggleAddKPI()">Cancel</button>
+              <button class="btn-p" id="kpi-import-btn" style="display:none" onclick="importKpiFromExcel()">Import selected</button>
+            </div>
           </div>
         </div>
       </div>
@@ -613,7 +623,7 @@ function seedTasks() {
 function today() { return new Date().toISOString().split('T')[0]; }
 function fmtDate(d) { if(!d)return ''; const[,m,day]=d.split('-'); const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return mo[+m-1]+' '+parseInt(day); }
 function isOverdue(t) { return t.due && t.due < today() && !t.done; }
-function getAssigneeName(id) { const u=getUserById(id); return u?u.name.split(' ')[0]:id; }
+function getAssigneeName(id) { const u=getUserById(id); return u?(u.nick||u.name.split(' ')[0]):id; }
 
 // ─────────────────────────────────────────────
 //  Login
@@ -750,6 +760,34 @@ function openAdd() {
   document.getElementById('f-title').focus();
 }
 function closeAdd(){document.getElementById('add-wrap').classList.remove('open');}
+
+function setAddTab(tab){
+  document.getElementById('add-single-section').style.display=tab==='single'?'block':'none';
+  document.getElementById('add-bulk-section').style.display=tab==='bulk'?'block':'none';
+  document.getElementById('tab-single').classList.toggle('on',tab==='single');
+  document.getElementById('tab-bulk').classList.toggle('on',tab==='bulk');
+}
+
+function saveBulkTasks(){
+  const lines=document.getElementById('f-bulk').value.split('\n').map(l=>l.trim()).filter(l=>l);
+  if(!lines.length){document.getElementById('f-bulk').focus();return;}
+  const brand=document.getElementById('f-brand').value;
+  const assignee=document.getElementById('f-assignee').value;
+  const type=document.getElementById('f-type').value;
+  const repeat=document.getElementById('f-repeat').value;
+  const kpi=document.getElementById('f-kpi').value;
+  const due=document.getElementById('f-due').value;
+  const note=document.getElementById('f-note').value.trim();
+  lines.forEach(title=>{
+    tasks.unshift({id:nextId++,title,brand,assignee,type,repeat,kpi,due,note,done:false,createdBy:session.user,date:today()});
+  });
+  saveTasks();
+  document.getElementById('f-bulk').value='';
+  document.getElementById('f-note').value='';
+  document.getElementById('f-due').value='';
+  closeAdd();render();
+}
+
 function saveTask() {
   const title=document.getElementById('f-title').value.trim(); if(!title)return;
   tasks.unshift({id:nextId++,title,brand:document.getElementById('f-brand').value,assignee:document.getElementById('f-assignee').value,type:document.getElementById('f-type').value,repeat:document.getElementById('f-repeat').value,kpi:document.getElementById('f-kpi').value,due:document.getElementById('f-due').value,note:document.getElementById('f-note').value.trim(),done:false,createdBy:session.user,date:today()});
@@ -1013,6 +1051,9 @@ function toggleAddKPI(){
   const f=document.getElementById('add-kpi-form');
   f.style.display=f.style.display==='none'?'block':'none';
   if(f.style.display==='block'){
+    setKpiTab('manual');
+    // Excel upload tab — manager only
+    document.getElementById('kpi-tab-excel').style.display=session.role==='manager'?'':'none';
     // Populate user dropdown with non-manager users
     const sel=document.getElementById('nk-user');sel.innerHTML='';
     getUsers().filter(u=>!u.isManager).forEach(u=>{const o=document.createElement('option');o.value=u.id;o.textContent=u.name;sel.appendChild(o);});
@@ -1202,6 +1243,85 @@ function renderAnalytics() {
     ${staffRows ? `<div style="font-size:11px;color:#555;font-weight:500;margin:8px 0 5px">By person</div>${staffRows}` : ''}
     ${done.length===0&&pending.length===0?'<div class="empty" style="font-size:11px">No task activity in this period.</div>':''}
   `;
+}
+
+// ── KPI Excel import (SheetJS) ──
+let parsedExcelRows = [];
+
+function setKpiTab(tab) {
+  document.getElementById('kpi-manual-section').style.display = tab==='manual'?'block':'none';
+  document.getElementById('kpi-excel-section').style.display  = tab==='excel' ?'block':'none';
+  document.getElementById('kpi-tab-manual').classList.toggle('on', tab==='manual');
+  document.getElementById('kpi-tab-excel').classList.toggle('on', tab==='excel');
+}
+
+function parseKpiExcel(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, {type:'binary'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+
+      // Extract rows where col A or B has text (skip header rows, empty rows)
+      parsedExcelRows = [];
+      let lastMetric = '';
+      rows.forEach((row, i) => {
+        const colA = String(row[0]||'').trim();
+        const colB = String(row[1]||'').trim();
+        if (!colA && !colB) return;
+        if (i < 3) return; // skip header rows
+        if (colA) lastMetric = colA;
+        if (colB && colB.toLowerCase() !== 'metrics') {
+          // Try to find a numeric target in the row
+          const nums = row.slice(2).filter(v => v !== '' && !isNaN(parseFloat(v)));
+          const target = nums.length ? String(nums[0]) : '';
+          parsedExcelRows.push({ metric: lastMetric||colB, sub: colA&&colB?colB:'', target, selected: true });
+        }
+      });
+
+      renderExcelPreview();
+    } catch(err) {
+      document.getElementById('kpi-excel-preview').innerHTML = '<div style="font-size:11px;color:#a32d2d">Could not read file. Make sure it\'s a valid .xlsx</div>';
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+function renderExcelPreview() {
+  const preview = document.getElementById('kpi-excel-preview');
+  if (!parsedExcelRows.length) { preview.innerHTML='<div style="font-size:11px;color:#aaa">No data found.</div>'; return; }
+
+  preview.innerHTML = `
+    <div style="font-size:11px;color:#555;font-weight:500;margin-bottom:6px">${parsedExcelRows.length} rows found — select to import:</div>
+    <div style="max-height:200px;overflow-y:auto;border:0.5px solid #e8e8e4;border-radius:8px">
+    ${parsedExcelRows.map((r,i)=>`
+      <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:0.5px solid #f5f5f3;cursor:pointer;font-size:11px">
+        <input type="checkbox" ${r.selected?'checked':''} onchange="parsedExcelRows[${i}].selected=this.checked" style="accent-color:#1a1a1a;width:13px;height:13px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;color:#1a1a1a">${r.metric}</div>
+          ${r.sub?`<div style="color:#aaa">${r.sub}</div>`:''}
+        </div>
+        ${r.target?`<span style="font-size:10px;color:#185fa5;background:#e6f1fb;padding:1px 6px;border-radius:6px">target: ${r.target}</span>`:''}
+      </label>`).join('')}
+    </div>`;
+  document.getElementById('kpi-import-btn').style.display = 'block';
+}
+
+function importKpiFromExcel() {
+  const userId = document.getElementById('nk-user').value;
+  const brand  = activeBrand==='all'?'sb':activeBrand;
+  const selected = parsedExcelRows.filter(r => r.selected);
+  if (!selected.length) { alert('Select at least one row.'); return; }
+  selected.forEach(r => addKPI(userId, brand, r.metric, r.sub, r.target, ''));
+  parsedExcelRows = [];
+  document.getElementById('kpi-excel-preview').innerHTML = '';
+  document.getElementById('kpi-import-btn').style.display = 'none';
+  document.getElementById('kpi-xlsx-input').value = '';
+  toggleAddKPI();
+  document.getElementById('kpi-panel').style.display = 'block';
+  renderRight();
 }
 
 // ── Boot ──
