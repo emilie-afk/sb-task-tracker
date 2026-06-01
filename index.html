@@ -185,6 +185,7 @@ textarea{resize:vertical;min-height:44px}
     <div class="app-title">&#9744; Task Tracker</div>
     <div class="btabs" id="btabs"></div>
     <div class="topbar-right">
+      <div id="user-chip" style="font-size:12px;font-weight:500;display:flex;align-items:center;gap:7px"></div>
       <button class="signout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -290,13 +291,17 @@ textarea{resize:vertical;min-height:44px}
         <div id="summary-area"></div>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="kpi-panel">
         <div class="pt" style="display:flex;align-items:center;justify-content:space-between">
           <span>KPI Scorecard</span>
           <button class="btn-sm" id="add-kpi-btn" style="display:none" onclick="toggleAddKPI()">+ Add</button>
         </div>
         <div id="kpi-area"></div>
         <div id="add-kpi-form" style="display:none;margin-top:10px;border-top:0.5px solid #f0f0ec;padding-top:10px">
+          <div style="margin-bottom:6px">
+            <div class="fl">For user</div>
+            <select id="nk-user"></select>
+          </div>
           <div class="fg fg2" style="margin-bottom:6px">
             <div><div class="fl">Metric name</div><input type="text" id="nk-metric" placeholder="e.g. Blogs"></div>
             <div><div class="fl">Sub-metric</div><input type="text" id="nk-sub" placeholder="e.g. No. written"></div>
@@ -378,6 +383,54 @@ textarea{resize:vertical;min-height:44px}
         <div id="perm-area"></div>
         <button class="btn-p" style="width:100%;margin-top:10px;justify-content:center" onclick="savePerms()">Save permissions</button>
       </div>
+
+      <!-- Analytics panel -->
+      <div class="panel" id="analytics-panel">
+        <div class="pt" style="display:flex;align-items:center;justify-content:space-between">
+          <span>Analytics</span>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="fchip on" data-ap="today" onclick="setAPeriod('today',this)">Today</button>
+          <button class="fchip" data-ap="yesterday" onclick="setAPeriod('yesterday',this)">Yesterday</button>
+          <button class="fchip" data-ap="mtd" onclick="setAPeriod('mtd',this)">Month to date</button>
+          <button class="fchip" data-ap="lm" onclick="setAPeriod('lm',this)">Last month</button>
+          <button class="fchip" data-ap="pick" onclick="setAPeriod('pick',this)">&#128197;</button>
+        </div>
+        <div id="a-datepick" style="display:none;margin-bottom:8px;display:none">
+          <div class="fl">From</div>
+          <input type="date" id="a-from" style="margin-bottom:5px" onchange="renderAnalytics()">
+          <div class="fl">To</div>
+          <input type="date" id="a-to" onchange="renderAnalytics()">
+        </div>
+        <div id="analytics-area"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="overlay" id="emodal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-t">Edit task</div>
+    <div style="margin-bottom:10px">
+      <div class="fl">Task title</div>
+      <input type="text" id="e-title" placeholder="Task title">
+    </div>
+    <div class="fg fg2" style="margin-bottom:10px">
+      <div><div class="fl">Type</div><select id="e-type"><option value="routine">Routine</option><option value="adhoc">Ad hoc</option><option value="video">Video</option></select></div>
+      <div><div class="fl">Repeat</div><select id="e-repeat"><option value="none">No repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+    </div>
+    <div class="fg fg2" style="margin-bottom:10px">
+      <div><div class="fl">Due date</div><input type="date" id="e-due"></div>
+      <div><div class="fl">KPI link</div><select id="e-kpi"><option value="">— None —</option><option>SB Blogs (2/week)</option><option>SB Social media</option><option>SB Affiliate invites</option><option>SB Amazon A+ content</option><option>SB Instagram + Pinterest</option><option>Video content output</option><option>Hi An Influencer pipeline</option><option>ExpatMarket scripts/week</option></select></div>
+    </div>
+    <div style="margin-bottom:10px">
+      <div class="fl">Note</div>
+      <input type="text" id="e-note" placeholder="Optional context…">
+    </div>
+    <div class="row-end">
+      <button class="btn-g" onclick="closeEmodal()">Cancel</button>
+      <button class="btn-p" onclick="saveEdit()">Save changes</button>
     </div>
   </div>
 </div>
@@ -408,41 +461,66 @@ const AVATAR_COLORS = [
   {bg:'#faeeda',col:'#854f0b'},{bg:'#fcebeb',col:'#a32d2d'},{bg:'#f0f0ec',col:'#5f5e5a'},
 ];
 
-// ── KPI Scorecard (from real EOS file) — manager-editable ──
+// ── KPI Scorecard — keyed by userId → brand → metrics
+// Thao has the real EOS scorecard. Manager can create scorecards for any user.
 let kpiNextId = 100;
 function defaultKPIs() {
   return {
-    sb:[
-      {id:'k1',metric:'Social media',sub:'Story / Posts / Reels mentioned',current:'',target:'',note:'Pending — focus on Shopify & TikTok'},
-      {id:'k2',metric:'Affiliate (Collab app)',sub:'Invitations sent',current:'',target:'',note:'Pending'},
-      {id:'k3',metric:'Affiliate (Collab app)',sub:'Total members',current:'',target:'',note:''},
-      {id:'k4',metric:'Blogs',sub:'No. blogs updated',current:'2',target:'2',note:'Weekly target'},
-      {id:'k5',metric:'Blogs',sub:'No. blogs written',current:'2',target:'2',note:'Weekly target'},
-      {id:'k6',metric:'Amazon A+ content',sub:'No. listings updated',current:'',target:'',note:'Pending'},
-      {id:'k7',metric:'Giveaway',sub:'No. giveaways hosted',current:'',target:'',note:''},
-      {id:'k8',metric:'Instagram + Pinterest',sub:'No. posts created',current:'1',target:'1',note:'Weekly target'},
-    ],
-    hian:[
-      {id:'kh1',metric:'Photostosketches social',sub:'Video scripts / week',current:'',target:'5',note:''},
-      {id:'kh2',metric:'Influencer outreach',sub:'Contacts sent',current:'',target:'',note:''},
-    ],
-    expat:[
-      {id:'ke1',metric:'ExpatMarket social',sub:'Video scripts / week',current:'',target:'7',note:''},
-      {id:'ke2',metric:'Influencer outreach',sub:'Contacts sent',current:'',target:'',note:'Work with Ms. Olivia Do'},
-    ],
-    snack:[],
+    thao: {
+      sb:[
+        {id:'k1',metric:'Social media',sub:'Story / Posts / Reels mentioned',current:'',target:'',note:'Pending — focus on Shopify & TikTok'},
+        {id:'k2',metric:'Affiliate (Collab app)',sub:'Invitations sent',current:'',target:'',note:'Pending'},
+        {id:'k3',metric:'Affiliate (Collab app)',sub:'Total members',current:'',target:'',note:''},
+        {id:'k4',metric:'Blogs',sub:'No. blogs updated',current:'2',target:'2',note:'Weekly target'},
+        {id:'k5',metric:'Blogs',sub:'No. blogs written',current:'2',target:'2',note:'Weekly target'},
+        {id:'k6',metric:'Amazon A+ content',sub:'No. listings updated',current:'',target:'',note:'Pending'},
+        {id:'k7',metric:'Giveaway',sub:'No. giveaways hosted',current:'',target:'',note:''},
+        {id:'k8',metric:'Instagram + Pinterest',sub:'No. posts created',current:'1',target:'1',note:'Weekly target'},
+      ],
+      hian:[
+        {id:'kh1',metric:'Photostosketches social',sub:'Video scripts / week',current:'',target:'5',note:''},
+        {id:'kh2',metric:'Influencer outreach',sub:'Contacts sent',current:'',target:'',note:''},
+      ],
+      expat:[
+        {id:'ke1',metric:'ExpatMarket social',sub:'Video scripts / week',current:'',target:'7',note:''},
+        {id:'ke2',metric:'Influencer outreach',sub:'Contacts sent',current:'',target:'',note:'Work with Ms. Olivia Do'},
+      ],
+      snack:[],
+    }
   };
 }
 function loadKPIs(){try{const k=JSON.parse(localStorage.getItem('tt_kpis'));return k||defaultKPIs();}catch{return defaultKPIs();}}
 function saveKPIs(k){localStorage.setItem('tt_kpis',JSON.stringify(k));}
-function getKPIs(){return loadKPIs();}
-function getKPIBrand(b){const all=getKPIs();if(b==='all')return [...(all.sb||[]),...(all.hian||[]),...(all.expat||[]),...(all.snack||[])];return all[b]||[];}
 
-function addKPI(brand,metric,sub,target,note){
-  const kpis=getKPIs();if(!kpis[brand])kpis[brand]=[];
-  kpis[brand].push({id:'k'+kpiNextId++,metric,sub,current:'',target,note});
+// Get KPI for a specific user + brand. For manager, shows the scorecard of the person filter.
+function getKPIForUser(userId,brand){
+  const all=loadKPIs();
+  const userKpis=all[userId]||{};
+  if(brand==='all')return [...(userKpis.sb||[]),...(userKpis.hian||[]),...(userKpis.expat||[]),...(userKpis.snack||[])];
+  return userKpis[brand]||[];
+}
+// Backwards-compat alias
+function getKPIBrand(b){return getKPIForUser('thao',b);}
+
+function addKPI(userId,brand,metric,sub,target,note){
+  const kpis=loadKPIs();
+  if(!kpis[userId])kpis[userId]={};
+  if(!kpis[userId][brand])kpis[userId][brand]=[];
+  kpis[userId][brand].push({id:'k'+kpiNextId++,metric,sub,current:'',target,note});
   saveKPIs(kpis);
 }
+function updateKPICurrent(id,userId,brand,val){
+  const kpis=loadKPIs();
+  const item=((kpis[userId]||{})[brand]||[]).find(k=>k.id===id);
+  if(item){item.current=val;saveKPIs(kpis);}
+}
+function deleteKPI(id,userId,brand){
+  const kpis=loadKPIs();
+  if(kpis[userId]&&kpis[userId][brand])kpis[userId][brand]=(kpis[userId][brand]).filter(k=>k.id!==id);
+  saveKPIs(kpis);
+}
+// Check if a user has any KPI scorecard at all
+function userHasKPI(userId){const all=loadKPIs();const u=all[userId]||{};return Object.values(u).some(arr=>arr.length>0);}
 function updateKPICurrent(id,brand,val){
   const kpis=getKPIs();const item=(kpis[brand]||[]).find(k=>k.id===id);
   if(item){item.current=val;saveKPIs(kpis);}
@@ -469,13 +547,23 @@ let nextId = 1;
 // ─────────────────────────────────────────────
 function defaultUsers() {
   return [
-    {id:'emilie', name:'Manager', label:'Full access', av:'M', bg:'#f0f0ec', col:'#5f5e5a', brands:['sb','hian','expat','snack'], isManager:true},
-    {id:'thao',   name:'Thao Nguyen', label:'Marketing Assistant', av:'TN', bg:'#e1f5ee', col:'#0f6e56', brands:['sb'],                isManager:false},
-    {id:'tung',   name:'Thanh Tung',  label:'Video Editor',        av:'TT', bg:'#eeedfe', col:'#3c3489', brands:['sb','hian','expat'], isManager:false},
+    {id:'emilie', name:'Emilie', label:'Full access', av:'EM', bg:'#faeeda', col:'#854f0b', brands:['sb','hian','expat','snack'], isManager:true},
+    {id:'thao',   name:'Thao Nguyen', nick:'Thao', label:'Marketing Assistant', av:'TN', bg:'#e1f5ee', col:'#0f6e56', brands:['sb'],                isManager:false},
+    {id:'tung',   name:'Thanh Tung',  nick:'Tung', label:'Video Editor',        av:'TT', bg:'#eeedfe', col:'#3c3489', brands:['sb','hian','expat'], isManager:false},
   ];
 }
 function loadUsers() {
-  try { return JSON.parse(localStorage.getItem('tt_users')) || defaultUsers(); }
+  try {
+    const stored = JSON.parse(localStorage.getItem('tt_users'));
+    if (!stored) return defaultUsers();
+    // Migrate: update manager entry if cached with old 'Manager' name
+    const mgr = stored.find(u => u.id === 'emilie');
+    if (mgr && (mgr.name === 'Manager' || mgr.av === 'M')) {
+      mgr.name = 'Emilie'; mgr.av = 'EM'; mgr.bg = '#faeeda'; mgr.col = '#854f0b';
+      localStorage.setItem('tt_users', JSON.stringify(stored));
+    }
+    return stored;
+  }
   catch { return defaultUsers(); }
 }
 function saveUsers(us) { localStorage.setItem('tt_users',JSON.stringify(us)); }
@@ -594,9 +682,13 @@ function initApp() {
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('app').style.display='flex';
   const u = session.meta;
+  document.getElementById('user-chip').innerHTML=`<div style="width:22px;height:22px;border-radius:50%;background:${u.bg};color:${u.col};display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">${u.av}</div> ${u.name}`;
   buildBrandTabs();
   const mgr = session.role==='manager';
   ['team-panel','users-panel','perm-panel'].forEach(id=>document.getElementById(id).style.display=mgr?'block':'none');
+  // KPI panel: visible to manager and Thao (has EOS scorecard); hidden for others unless manager creates one for them
+  // KPI panel: show for manager always, and for staff only if they have a scorecard
+  document.getElementById('kpi-panel').style.display=(mgr||userHasKPI(session.user))?'block':'none';
   const pf=document.getElementById('person-filter'), ps=document.getElementById('person-sep');
   buildPersonFilter();
   pf.style.display='flex'; ps.style.display='block';
@@ -626,7 +718,7 @@ function buildPersonFilter() {
   const users=getUsers().filter(u=>!u.isManager);
   const pf=document.getElementById('person-filter');
   pf.innerHTML=`<button class="fchip on" data-p="all" onclick="setP('all',this)">Everyone</button>`+
-    users.map(u=>`<button class="fchip" data-p="${u.id}" onclick="setP('${u.id}',this)">${u.name.split(' ')[0]}</button>`).join('');
+    users.map(u=>`<button class="fchip" data-p="${u.id}" onclick="setP('${u.id}',this)">${u.nick||u.name.split(' ')[0]}</button>`).join('');
 }
 
 function buildAssigneeSelect() {
@@ -667,6 +759,33 @@ function saveTask() {
 // ─────────────────────────────────────────────
 //  Repeat modal
 // ─────────────────────────────────────────────
+let emodalId=null;
+function openEmodal(id){
+  emodalId=id;const t=tasks.find(x=>x.id===id);if(!t)return;
+  document.getElementById('e-title').value=t.title;
+  document.getElementById('e-type').value=t.type;
+  document.getElementById('e-repeat').value=t.repeat||'none';
+  document.getElementById('e-due').value=t.due||'';
+  document.getElementById('e-kpi').value=t.kpi||'';
+  document.getElementById('e-note').value=t.note||'';
+  document.getElementById('emodal').classList.add('on');
+}
+function closeEmodal(){document.getElementById('emodal').classList.remove('on');emodalId=null;}
+function saveEdit(){
+  if(!emodalId)return;
+  const t=tasks.find(x=>x.id===emodalId);
+  if(t){
+    t.title=document.getElementById('e-title').value.trim()||t.title;
+    t.type=document.getElementById('e-type').value;
+    t.repeat=document.getElementById('e-repeat').value;
+    t.due=document.getElementById('e-due').value;
+    t.kpi=document.getElementById('e-kpi').value;
+    t.note=document.getElementById('e-note').value.trim();
+    saveTasks();
+  }
+  closeEmodal();render();
+}
+
 function openRmodal(id){rmodalId=id;const t=tasks.find(x=>x.id===id);if(!t)return;document.getElementById('rmodal-name').textContent='"'+t.title+'"';document.querySelectorAll('[name=ro]').forEach(r=>r.checked=r.value===t.repeat);document.getElementById('rmodal').classList.add('on');}
 function closeRmodal(){document.getElementById('rmodal').classList.remove('on');rmodalId=null;}
 function applyRepeat(){if(!rmodalId)return;const t=tasks.find(x=>x.id===rmodalId);if(t){t.repeat=document.querySelector('[name=ro]:checked').value;saveTasks();}closeRmodal();render();}
@@ -674,7 +793,7 @@ function applyRepeat(){if(!rmodalId)return;const t=tasks.find(x=>x.id===rmodalId
 // ─────────────────────────────────────────────
 //  Done / Delete
 // ─────────────────────────────────────────────
-function toggleDone(id){const t=tasks.find(x=>x.id===id);if(!t)return;if(session.role!=='manager'&&t.assignee!==session.user)return;t.done=!t.done;saveTasks();render();}
+function toggleDone(id){const t=tasks.find(x=>x.id===id);if(!t)return;if(session.role!=='manager'&&t.assignee!==session.user)return;t.done=!t.done;t.completedAt=t.done?today():null;saveTasks();render();}
 function delTask(id){if(session.role!=='manager')return;tasks=tasks.filter(x=>x.id!==id);saveTasks();render();}
 
 // ─────────────────────────────────────────────
@@ -811,6 +930,7 @@ function renderTasks() {
         </div>
       </div>
       <div class="tc-actions">
+        ${ca?`<button class="ic-btn" title="Edit" onclick="openEmodal(${t.id})">✎</button>`:''}
         ${ca?`<button class="ic-btn" title="Set repeat" onclick="openRmodal(${t.id})">↻</button>`:''}
         ${mgr?`<button class="ic-btn del" title="Delete" onclick="delTask(${t.id})">✕</button>`:''}
       </div>
@@ -847,24 +967,30 @@ function renderSummary() {
   const dayLabel = now.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
   document.getElementById('summary-date').textContent = dayLabel;
 
-  const bar = (done, total) => {
+  const doneBar = (d, total) => {
     if (!total) return '';
-    const pct = Math.round(done / total * 100);
+    const pct = Math.round(d / total * 100);
     const col = pct >= 80 ? '#1d9e75' : pct >= 40 ? '#ef9f27' : '#e24b4a';
-    return `<div style="height:4px;background:#f0f0ec;border-radius:2px;margin-top:4px"><div style="height:4px;border-radius:2px;background:${col};width:${pct}%"></div></div>`;
+    return `<div style="height:4px;background:#f0f0ec;border-radius:2px;margin-top:4px"><div style="height:4px;border-radius:2px;background:${col};width:${pct}%;transition:width .3s"></div></div>`;
+  };
+  const pendBar = (p, total) => {
+    if (!total) return '';
+    const pct = Math.round(p / total * 100);
+    const col = pct === 0 ? '#1d9e75' : pct <= 30 ? '#ef9f27' : '#e24b4a';
+    return `<div style="height:4px;background:#f0f0ec;border-radius:2px;margin-top:4px"><div style="height:4px;border-radius:2px;background:${col};width:${pct}%;transition:width .3s"></div></div>`;
   };
 
   document.getElementById('summary-area').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
       <div style="background:#f5f5f3;border-radius:8px;padding:9px 11px">
-        <div style="font-size:20px;font-weight:600;color:#1a1a1a">${done.length}</div>
+        <div style="font-size:20px;font-weight:600;color:${done.length>0?'#1d9e75':'#1a1a1a'}">${done.length}</div>
         <div style="font-size:11px;color:#888;margin-top:1px">Tasks done</div>
-        ${bar(done.length, pool.length)}
+        ${doneBar(done.length, pool.length)}
       </div>
       <div style="background:#f5f5f3;border-radius:8px;padding:9px 11px">
         <div style="font-size:20px;font-weight:600;color:${pending.length>0?'#e24b4a':'#1d9e75'}">${pending.length}</div>
         <div style="font-size:11px;color:#888;margin-top:1px">Pending</div>
-        ${bar(pending.length, pool.length)}
+        ${pendBar(pending.length, pool.length)}
       </div>
     </div>
     <div style="font-size:11px;color:#555;margin-bottom:6px;font-weight:500">By type</div>
@@ -883,13 +1009,26 @@ function renderSummary() {
 }
 
 // ── KPI UI helpers ──
-function toggleAddKPI(){const f=document.getElementById('add-kpi-form');f.style.display=f.style.display==='none'?'block':'none';}
+function toggleAddKPI(){
+  const f=document.getElementById('add-kpi-form');
+  f.style.display=f.style.display==='none'?'block':'none';
+  if(f.style.display==='block'){
+    // Populate user dropdown with non-manager users
+    const sel=document.getElementById('nk-user');sel.innerHTML='';
+    getUsers().filter(u=>!u.isManager).forEach(u=>{const o=document.createElement('option');o.value=u.id;o.textContent=u.name;sel.appendChild(o);});
+    if(activeP!=='all')sel.value=activeP;
+  }
+}
 function saveNewKPI(){
   const metric=document.getElementById('nk-metric').value.trim();if(!metric)return;
   const brand=activeBrand==='all'?'sb':activeBrand;
-  addKPI(brand,metric,document.getElementById('nk-sub').value.trim(),document.getElementById('nk-target').value.trim(),document.getElementById('nk-note').value.trim());
+  // When manager adds a KPI, use the currently filtered person (or thao as default)
+  const targetUser=document.getElementById('nk-user')?.value||(activeP!=='all'?activeP:'thao');
+  addKPI(targetUser,brand,metric,document.getElementById('nk-sub').value.trim(),document.getElementById('nk-target').value.trim(),document.getElementById('nk-note').value.trim());
   ['nk-metric','nk-sub','nk-target','nk-note'].forEach(id=>document.getElementById(id).value='');
   toggleAddKPI();renderRight();
+  // Show the KPI panel for that user if it was hidden
+  document.getElementById('kpi-panel').style.display='block';
 }
 
 function renderRight() {
@@ -898,33 +1037,36 @@ function renderRight() {
   const addBtn=document.getElementById('add-kpi-btn');
   if(addBtn)addBtn.style.display=mgr?'block':'none';
 
-  // KPI Scorecard — real data from EOS file
-  const kpis=getKPIBrand(activeBrand);
-  const brand=activeBrand==='all'?'sb':activeBrand;
-  document.getElementById('kpi-area').innerHTML=kpis.length?kpis.map(k=>{
-    const hasTarget=k.target!=='';
-    const hasCurrent=k.current!=='';
-    const ok=hasTarget&&hasCurrent&&parseFloat(k.current)>=parseFloat(k.target);
-    const pending=k.note&&k.note.toLowerCase().includes('pending');
-    return `<div style="padding:6px 0;border-bottom:0.5px solid #f5f5f3">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11px;font-weight:500;color:#555">${k.metric}</div>
-          ${k.sub?`<div style="font-size:10px;color:#aaa">${k.sub}</div>`:''}
-          ${k.note?`<div style="font-size:10px;color:#c0a060;margin-top:1px">${k.note}</div>`:''}
+  // KPI Scorecard — show for the person being viewed (person filter), or own for staff
+  const kpiUserId = mgr ? (activeP!=='all'?activeP:'thao') : session.user;
+  const brand = activeBrand==='all'?'sb':activeBrand;
+  const kpis = getKPIForUser(kpiUserId, activeBrand);
+  const kpiUser = getUserById(kpiUserId);
+  document.getElementById('kpi-area').innerHTML=kpis.length?
+    `<div style="font-size:10px;color:#888;margin-bottom:6px;font-weight:500">${kpiUser?kpiUser.name:kpiUserId}</div>`+
+    kpis.map(k=>{
+      const hasTarget=k.target!=='', hasCurrent=k.current!=='';
+      const ok=hasTarget&&hasCurrent&&parseFloat(k.current)>=parseFloat(k.target);
+      const pending=k.note&&k.note.toLowerCase().includes('pending');
+      return `<div style="padding:6px 0;border-bottom:0.5px solid #f5f5f3">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:500;color:#555">${k.metric}</div>
+            ${k.sub?`<div style="font-size:10px;color:#aaa">${k.sub}</div>`:''}
+            ${k.note?`<div style="font-size:10px;color:#c0a060;margin-top:1px">${k.note}</div>`:''}
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+            ${mgr?`<input type="text" value="${k.current}" placeholder="—" title="Current value" style="width:42px;padding:2px 5px;font-size:11px;text-align:center;border:0.5px solid #e0e0da;border-radius:5px" onchange="updateKPICurrent('${k.id}','${kpiUserId}','${brand}',this.value);renderRight()">`
+            :`<span style="font-size:12px;font-weight:500">${k.current||'—'}</span>`}
+            ${hasTarget?`<span style="font-size:10px;color:#ccc">/ ${k.target}</span>`:''}
+            ${hasCurrent&&hasTarget?`<span style="font-size:10px;color:${ok?'#1d9e75':'#e24b4a'}">${ok?'▲':'▼'}</span>`:''}
+            ${pending?`<span style="font-size:9px;background:#faeeda;color:#854f0b;padding:1px 5px;border-radius:5px">pending</span>`:''}
+            ${mgr?`<button style="font-size:10px;color:#ddd;border:none;background:transparent;cursor:pointer;padding:1px 3px;border-radius:3px" onmouseover="this.style.color='#a32d2d'" onmouseout="this.style.color='#ddd'" onclick="deleteKPI('${k.id}','${kpiUserId}','${brand}');renderRight()" title="Remove">✕</button>`:''}
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
-          ${mgr?`<input type="text" value="${k.current}" placeholder="—" title="Current value" style="width:42px;padding:2px 5px;font-size:11px;text-align:center;border:0.5px solid #e0e0da;border-radius:5px" onchange="updateKPICurrent('${k.id}','${brand==='all'?'sb':brand}',this.value);renderRight()">`
-          :`<span style="font-size:12px;font-weight:500">${k.current||'—'}</span>`}
-          ${hasTarget?`<span style="font-size:10px;color:#ccc">/ ${k.target}</span>`:''}
-          ${hasCurrent&&hasTarget?`<span style="font-size:10px;color:${ok?'#1d9e75':'#e24b4a'}">${ok?'▲':'▼'}</span>`:''}
-          ${pending?`<span style="font-size:9px;background:#faeeda;color:#854f0b;padding:1px 5px;border-radius:5px">pending</span>`:''}
-          ${mgr?`<button style="font-size:10px;color:#ddd;border:none;background:transparent;cursor:pointer;padding:1px 3px;border-radius:3px" onmouseover="this.style.color='#a32d2d'" onmouseout="this.style.color='#ddd'" onclick="deleteKPI('${k.id}','${brand}');renderRight()" title="Remove">✕</button>`:''}
-        </div>
-      </div>
-    </div>`;
-  }).join('')+'<div style="font-size:10px;color:#bbb;margin-top:8px">Source: EOS Scorecard · Succulents Box + LIM · Thao</div>'
-  :'<div class="empty">No KPI metrics. Manager can add them with + Add.</div>';
+      </div>`;
+    }).join('')+'<div style="font-size:10px;color:#bbb;margin-top:8px">Source: EOS Scorecard · Succulents Box + LIM</div>'
+  :'<div class="empty">No scorecard yet.<br><span style="font-size:10px">Manager can create one with + Add.</span></div>';
 
   if(mgr){
     const ft=tasks.filter(t=>activeBrand==='all'||t.brand===activeBrand);
@@ -963,7 +1105,104 @@ function renderDayStrip() {
   `;
 }
 
-function render(){if(session){renderDayStrip();renderTasks();renderRight();renderSummary();}}
+function render(){if(session){renderDayStrip();renderTasks();renderRight();renderSummary();renderAnalytics();}}
+
+// ── Analytics ──
+let activePeriod = 'today';
+
+function setAPeriod(p, el) {
+  activePeriod = p;
+  document.querySelectorAll('[data-ap]').forEach(b => b.classList.toggle('on', b.dataset.ap === p));
+  const dp = document.getElementById('a-datepick');
+  dp.style.display = p === 'pick' ? 'block' : 'none';
+  if (p === 'pick') { document.getElementById('a-from').value = today(); document.getElementById('a-to').value = today(); }
+  renderAnalytics();
+}
+
+function getPeriodDates() {
+  const td = today();
+  const d = new Date(td);
+  if (activePeriod === 'today') return { from: td, to: td };
+  if (activePeriod === 'yesterday') {
+    d.setDate(d.getDate() - 1);
+    const y = d.toISOString().split('T')[0];
+    return { from: y, to: y };
+  }
+  if (activePeriod === 'mtd') return { from: td.slice(0,7)+'-01', to: td };
+  if (activePeriod === 'lm') {
+    const lm = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+    const lmEnd = new Date(d.getFullYear(), d.getMonth(), 0);
+    return { from: lm.toISOString().split('T')[0], to: lmEnd.toISOString().split('T')[0] };
+  }
+  if (activePeriod === 'pick') {
+    return { from: document.getElementById('a-from')?.value || td, to: document.getElementById('a-to')?.value || td };
+  }
+  return { from: td, to: td };
+}
+
+function renderAnalytics() {
+  const { from, to } = getPeriodDates();
+  const mgr = session && session.role === 'manager';
+
+  // Pool: tasks in the date range (by creation date or completion date)
+  let pool = tasks.filter(t => {
+    if (activeBrand !== 'all' && t.brand !== activeBrand) return false;
+    if (!mgr && t.assignee !== session.user) return false;
+    if (activeP !== 'all' && t.assignee !== activeP) return false;
+    const d = t.completedAt || t.date;
+    return d >= from && d <= to;
+  });
+
+  const done = pool.filter(t => t.done && t.completedAt >= from && t.completedAt <= to);
+  const created = pool.filter(t => t.date >= from && t.date <= to);
+  const pending = pool.filter(t => !t.done);
+  const routineDone = done.filter(t => t.type === 'routine' || t.repeat !== 'none');
+  const onetimeDone = done.filter(t => t.type !== 'routine' && t.repeat === 'none');
+
+  // Per-person breakdown (manager view)
+  const staffRows = mgr ? getUsers().filter(u => !u.isManager).map(u => {
+    const ud = done.filter(t => t.assignee === u.id);
+    const up = pending.filter(t => t.assignee === u.id);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:0.5px solid #f5f5f3;font-size:11px">
+      <span style="display:flex;align-items:center;gap:6px">
+        <div class="av" style="width:20px;height:20px;background:${u.bg};color:${u.col};font-size:9px">${u.av}</div>
+        ${u.nick||u.name.split(' ')[0]}
+      </span>
+      <span><span style="color:#1d9e75;font-weight:500">${ud.length} done</span> · <span style="color:#aaa">${up.length} pending</span></span>
+    </div>`;
+  }).join('') : '';
+
+  const label = activePeriod === 'today' ? 'Today' : activePeriod === 'yesterday' ? 'Yesterday' :
+    activePeriod === 'mtd' ? 'Month to date' : activePeriod === 'lm' ? 'Last month' :
+    `${fmtDate(from)}${from!==to?' – '+fmtDate(to):''}`;
+
+  document.getElementById('analytics-area').innerHTML = `
+    <div style="font-size:10px;color:#aaa;margin-bottom:8px">${label} · ${from===to?fmtDate(from):fmtDate(from)+' – '+fmtDate(to)}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px">
+      <div style="background:#f5f5f3;border-radius:8px;padding:8px 10px">
+        <div style="font-size:18px;font-weight:600;color:${done.length>0?'#1d9e75':'#1a1a1a'}">${done.length}</div>
+        <div style="font-size:10px;color:#888;margin-top:1px">Completed</div>
+      </div>
+      <div style="background:#f5f5f3;border-radius:8px;padding:8px 10px">
+        <div style="font-size:18px;font-weight:600;color:${pending.length>0?'#e24b4a':'#1d9e75'}">${pending.length}</div>
+        <div style="font-size:10px;color:#888;margin-top:1px">Pending</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:#555;font-weight:500;margin-bottom:6px">By type</div>
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:${mgr?'10px':'0'}">
+      <div style="display:flex;justify-content:space-between;font-size:11px;padding:4px 7px;background:#f8f8f6;border-radius:6px">
+        <span style="color:#777">↻ Routine</span>
+        <span style="color:#1d9e75;font-weight:500">${routineDone.length} done</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;padding:4px 7px;background:#f8f8f6;border-radius:6px">
+        <span style="color:#777">One-time / ad hoc</span>
+        <span style="color:#1d9e75;font-weight:500">${onetimeDone.length} done</span>
+      </div>
+    </div>
+    ${staffRows ? `<div style="font-size:11px;color:#555;font-weight:500;margin:8px 0 5px">By person</div>${staffRows}` : ''}
+    ${done.length===0&&pending.length===0?'<div class="empty" style="font-size:11px">No task activity in this period.</div>':''}
+  `;
+}
 
 // ── Boot ──
 loadTasks();
