@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Tracker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f3;color:#1a1a1a;font-size:14px;min-height:100vh}
+
+/* ── Login ── */
+.login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.login-card{background:#fff;border:0.5px solid #e0e0da;border-radius:16px;padding:32px 28px;width:100%;max-width:370px}
+.login-title{font-size:18px;font-weight:600;margin-bottom:4px}
+.login-sub{font-size:13px;color:#888;margin-bottom:20px}
+#user-list{display:flex;flex-direction:column;gap:7px;margin-bottom:0;max-height:320px;overflow-y:auto}
+.user-btn{display:flex;align-items:center;gap:12px;width:100%;padding:10px 13px;border:0.5px solid #e0e0da;border-radius:10px;background:#fff;cursor:pointer;text-align:left;transition:all .12s}
+.user-btn:hover{background:#f8f8f6}
+.user-btn.sel{border-color:#1a1a1a;background:#f5f5f3}
+.av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+.uname{font-size:13px;font-weight:500}
+.urole{font-size:11px;color:#999}
+.pw-section{margin-top:14px}
+.pw-label{font-size:12px;color:#666;margin-bottom:4px}
+.pw-in{width:100%;padding:9px 12px;border:0.5px solid #d0d0ca;border-radius:8px;font-size:13px}
+.pw-in:focus{outline:none;border-color:#1a1a1a}
+.pw-err{font-size:12px;color:#a32d2d;margin-top:5px;display:none}
+.login-btn{width:100%;margin-top:12px;padding:10px;background:#1a1a1a;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer}
+.login-btn:hover{background:#333}
+.login-btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* ── App ── */
+.app{display:none;flex-direction:column;min-height:100vh}
+.topbar{background:#fff;border-bottom:0.5px solid #e0e0da;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:100}
+.app-title{font-size:14px;font-weight:600;white-space:nowrap}
+.btabs{display:flex;gap:5px;flex-wrap:wrap}
+.btab{padding:4px 13px;border-radius:20px;font-size:12px;border:0.5px solid #d8d8d4;color:#666;cursor:pointer;background:transparent;white-space:nowrap;transition:all .12s}
+.btab:hover{background:#f0f0ec}
+.btab.on{color:#fff;border-color:transparent;font-weight:500}
+.btab[data-b=sb].on{background:#1d9e75}
+.btab[data-b=hian].on{background:#7f77dd}
+.btab[data-b=expat].on{background:#378add}
+.btab[data-b=snack].on{background:#ba7517}
+.btab[data-b=all].on{background:#5f5e5a}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.user-chip{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;padding:4px 10px;border-radius:20px;background:#f5f5f3}
+.signout{font-size:11px;color:#bbb;cursor:pointer;border:none;background:transparent;padding:4px 7px;border-radius:6px}
+.signout:hover{color:#a32d2d}
+
+/* ── Layout ── */
+.content{display:grid;grid-template-columns:1fr 256px;gap:16px;padding:16px 20px;max-width:1340px;margin:0 auto;width:100%}
+@media(max-width:860px){.content{grid-template-columns:1fr}}
+
+/* ── Toolbar ── */
+.toolbar{display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.fchip{padding:4px 12px;border-radius:20px;font-size:12px;border:0.5px solid #d8d8d4;color:#666;cursor:pointer;background:#fff;white-space:nowrap}
+.fchip.on{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+.sep{width:0.5px;height:14px;background:#e0e0da;margin:0 2px;flex-shrink:0}
+.search-wrap{margin-left:auto;position:relative}
+.search-in{padding:5px 10px 5px 28px;border:0.5px solid #d8d8d4;border-radius:20px;font-size:12px;width:150px;background:#fff}
+.search-in:focus{outline:none;border-color:#1a1a1a;width:190px;transition:width .2s}
+.search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#bbb;font-size:12px;pointer-events:none}
+
+/* ── Add task form ── */
+.add-wrap{background:#fff;border:0.5px solid #e0e0da;border-radius:12px;padding:15px;margin-bottom:12px;display:none}
+.add-wrap.open{display:block}
+.add-ttl{font-size:13px;font-weight:500;margin-bottom:11px}
+.fg{display:grid;gap:8px;margin-bottom:8px}
+.fg2{grid-template-columns:1fr 1fr}
+.fg3{grid-template-columns:1fr 1fr 1fr}
+.fl{font-size:11px;color:#999;margin-bottom:3px}
+input[type=text],input[type=date],input[type=password],select,textarea{width:100%;padding:7px 9px;border:0.5px solid #d0d0ca;border-radius:7px;font-size:12px;background:#fff;color:#1a1a1a;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#1a1a1a}
+textarea{resize:vertical;min-height:44px}
+.row-end{display:flex;gap:7px;justify-content:flex-end;margin-top:6px}
+.btn-p{padding:7px 18px;border-radius:7px;background:#1a1a1a;color:#fff;border:none;cursor:pointer;font-size:12px;font-weight:500}
+.btn-p:hover{background:#333}
+.btn-g{padding:7px 12px;border-radius:7px;background:#fff;color:#666;border:0.5px solid #d0d0ca;cursor:pointer;font-size:12px}
+.btn-sm{padding:5px 12px;border-radius:6px;font-size:11px;border:0.5px solid #d0d0ca;background:#fff;cursor:pointer;color:#1a1a1a}
+.btn-sm:hover{background:#f5f5f3}
+.btn-sm.danger:hover{background:#fcebeb;color:#a32d2d;border-color:#f0997b}
+.btn-add{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border:0.5px solid #d0d0ca;border-radius:8px;font-size:12px;background:#fff;cursor:pointer;color:#1a1a1a;margin-top:10px}
+.btn-add:hover{background:#f8f8f6}
+
+/* ── Task cards ── */
+.sh{font-size:11px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px;display:flex;align-items:center;gap:6px}
+.sh .cnt{background:#f0f0ec;color:#999;padding:1px 7px;border-radius:8px;font-size:10px}
+.tlist{display:flex;flex-direction:column;gap:6px}
+.tc{background:#fff;border:0.5px solid #e8e8e4;border-radius:10px;padding:10px 12px;display:flex;align-items:flex-start;gap:9px;transition:border-color .1s}
+.tc:hover{border-color:#d0d0ca}
+.tc.done-c{opacity:.45}
+.chk{width:17px;height:17px;border-radius:5px;border:0.5px solid #ccc;cursor:pointer;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:10px;color:transparent;transition:all .12s}
+.chk:hover{border-color:#1d9e75}
+.chk.on{background:#1d9e75;border-color:#1d9e75;color:#fff}
+.ti{flex:1;min-width:0}
+.tt{font-size:13px;font-weight:500;line-height:1.4}
+.tc.done-c .tt{text-decoration:line-through;color:#ccc}
+.tn{font-size:12px;color:#999;margin-top:2px;line-height:1.4}
+.tm{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center}
+.b{font-size:10px;padding:2px 7px;border-radius:8px;font-weight:500;white-space:nowrap}
+.br{background:#e1f5ee;color:#0f6e56}
+.ba{background:#faeeda;color:#854f0b}
+.bv{background:#eeedfe;color:#3c3489}
+.bsb{background:#e1f5ee;color:#0f6e56}
+.bhian{background:#eeedfe;color:#3c3489}
+.bexpat{background:#e6f1fb;color:#185fa5}
+.bsnack{background:#faeeda;color:#854f0b}
+.mt{font-size:11px;color:#bbb}
+.od{font-size:10px;padding:2px 7px;border-radius:8px;background:#fcebeb;color:#a32d2d;font-weight:500}
+.rc{font-size:10px;padding:2px 7px;border-radius:8px;background:#f0f0ec;color:#888}
+.ac{font-size:11px;padding:2px 7px;border-radius:8px;background:#f5f5f3;color:#555;font-weight:500}
+.kc{font-size:10px;padding:2px 7px;border-radius:8px;background:#e6f1fb;color:#185fa5}
+.tc-actions{display:flex;flex-direction:column;gap:3px;flex-shrink:0}
+.ic-btn{font-size:12px;color:#ddd;cursor:pointer;border:none;background:transparent;padding:2px 5px;border-radius:4px;line-height:1}
+.ic-btn:hover{background:#f5f5f3;color:#666}
+.ic-btn.del:hover{background:#fcebeb;color:#a32d2d}
+
+/* ── Right panel ── */
+.rp{display:flex;flex-direction:column;gap:12px}
+.panel{background:#fff;border:0.5px solid #e8e8e4;border-radius:10px;padding:13px 15px}
+.pt{font-size:11px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+.krow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:0.5px solid #f5f5f3;font-size:12px}
+.krow:last-child{border-bottom:none}
+.kn{color:#777;flex:1}
+.kv{font-weight:500;display:flex;align-items:center;gap:5px}
+.rock{margin-bottom:10px}
+.rock:last-child{margin-bottom:0}
+.rname{font-size:12px;font-weight:500;margin-bottom:2px}
+.rmeta{font-size:11px;color:#bbb;margin-bottom:4px}
+.pbar{height:5px;background:#eee;border-radius:3px}
+.pfill{height:5px;border-radius:3px}
+
+/* ── User management panel ── */
+.um-user-row{display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:0.5px solid #f5f5f3}
+.um-user-row:last-child{border-bottom:none}
+.um-info{flex:1;min-width:0}
+.um-name{font-size:12px;font-weight:500}
+.um-meta{font-size:11px;color:#bbb;margin-top:1px}
+.um-actions{display:flex;gap:5px}
+.brand-check{display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap}
+.brand-check input{accent-color:#1a1a1a;cursor:pointer}
+.brand-checks{display:flex;gap:8px;flex-wrap:wrap;margin-top:5px}
+
+/* ── Add user form ── */
+.add-user-wrap{border-top:0.5px solid #e8e8e4;margin-top:12px;padding-top:12px;display:none}
+.add-user-wrap.open{display:block}
+.env-hint{background:#f5f5f3;border-radius:8px;padding:10px 12px;margin-top:10px;font-size:11px;color:#555;line-height:1.6}
+.env-hint code{background:#e8e8e4;padding:1px 5px;border-radius:4px;font-family:monospace;font-size:11px;color:#1a1a1a}
+.copy-btn{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 8px;border-radius:5px;border:0.5px solid #d0d0ca;background:#fff;cursor:pointer;margin-top:6px}
+.copy-btn:hover{background:#f5f5f3}
+
+/* ── Repeat modal ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:none;align-items:center;justify-content:center;z-index:200}
+.overlay.on{display:flex}
+.modal{background:#fff;border-radius:14px;padding:22px;width:100%;max-width:320px}
+.modal-t{font-size:14px;font-weight:600;margin-bottom:4px}
+.modal-s{font-size:12px;color:#888;margin-bottom:16px;line-height:1.5}
+.ropt{display:flex;align-items:center;gap:9px;padding:9px 11px;border:0.5px solid #e0e0da;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:6px}
+.ropt:hover{background:#f8f8f6}
+.ropt input{accent-color:#1a1a1a}
+
+.empty{text-align:center;color:#ccc;font-size:12px;padding:24px 0}
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN ── -->
+<div class="login-wrap" id="loginScreen">
+  <div class="login-card">
+    <div class="login-title">Task Tracker</div>
+    <div class="login-sub">Select your name and enter your password</div>
+    <div id="user-list"></div>
+    <div class="pw-section">
+      <div class="pw-label">Password</div>
+      <input type="password" id="pw-in" class="pw-in" placeholder="Enter your password" onkeydown="if(event.key==='Enter')doLogin()">
+      <div class="pw-err" id="pw-err"></div>
+    </div>
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Sign in</button>
+  </div>
+</div>
+
+<!-- ── APP ── -->
+<div class="app" id="app">
+  <div class="topbar">
+    <div class="app-title">&#9744; Task Tracker</div>
+    <div class="btabs" id="btabs"></div>
+    <div class="topbar-right">
+      <button class="signout" onclick="logout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- Main column -->
+    <div>
+      <div class="toolbar">
+        <button class="fchip on" data-f="all" onclick="setF('all',this)">All tasks</button>
+        <div class="sep"></div>
+        <div id="person-filter" style="display:none;gap:5px" class="person-filter"></div>
+        <div class="sep" id="person-sep" style="display:none"></div>
+        <button class="fchip on" data-t="all" onclick="setT('all',this)">All types</button>
+        <button class="fchip" data-t="routine" onclick="setT('routine',this)">Routine</button>
+        <button class="fchip" data-t="adhoc" onclick="setT('adhoc',this)">Ad hoc</button>
+        <button class="fchip" data-t="video" onclick="setT('video',this)">Video</button>
+        <div class="search-wrap">
+          <span class="search-icon">&#9906;</span>
+          <input type="text" class="search-in" id="search-in" placeholder="Search…" oninput="render()">
+        </div>
+      </div>
+
+      <div class="add-wrap" id="add-wrap">
+        <div class="add-ttl" id="add-ttl">Add task</div>
+        <div style="margin-bottom:8px">
+          <div class="fl">Task title *</div>
+          <input type="text" id="f-title" placeholder="What needs to be done?">
+        </div>
+        <div class="fg fg2">
+          <div>
+            <div class="fl">Brand</div>
+            <select id="f-brand"></select>
+          </div>
+          <div id="f-assignee-wrap">
+            <div class="fl">Assign to</div>
+            <select id="f-assignee"></select>
+          </div>
+        </div>
+        <div class="fg fg3">
+          <div>
+            <div class="fl">Type</div>
+            <select id="f-type">
+              <option value="routine">Routine</option>
+              <option value="adhoc">Ad hoc</option>
+              <option value="video">Video</option>
+            </select>
+          </div>
+          <div>
+            <div class="fl">Repeat</div>
+            <select id="f-repeat">
+              <option value="none">No repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          <div>
+            <div class="fl">Due date</div>
+            <input type="date" id="f-due">
+          </div>
+        </div>
+        <div class="fg fg2">
+          <div>
+            <div class="fl">Link to EOS KPI</div>
+            <select id="f-kpi">
+              <option value="">— None —</option>
+              <option>SB Blogs (2/week)</option>
+              <option>SB Social media</option>
+              <option>SB Affiliate invites</option>
+              <option>SB Amazon A+ content</option>
+              <option>SB Instagram + Pinterest</option>
+              <option>Video content output</option>
+              <option>Hi An Influencer pipeline</option>
+              <option>ExpatMarket scripts/week</option>
+            </select>
+          </div>
+          <div>
+            <div class="fl">Note</div>
+            <input type="text" id="f-note" placeholder="Optional context…">
+          </div>
+        </div>
+        <div class="row-end">
+          <button class="btn-g" onclick="closeAdd()">Cancel</button>
+          <button class="btn-p" onclick="saveTask()">Save task</button>
+        </div>
+      </div>
+
+      <!-- Inline daily summary strip -->
+      <div id="day-strip" style="display:none;align-items:center;gap:8px;padding:8px 12px;background:#fff;border:0.5px solid #e8e8e4;border-radius:9px;margin-bottom:12px;flex-wrap:wrap"></div>
+
+      <div id="task-area"></div>
+      <button class="btn-add" onclick="openAdd()">+ Add task</button>
+    </div>
+
+    <!-- Right panel -->
+    <div class="rp">
+      <!-- Daily summary -->
+      <div class="panel" id="summary-panel">
+        <div class="pt" style="display:flex;align-items:center;justify-content:space-between">
+          <span id="summary-date"></span>
+          <span style="font-size:10px;color:#bbb">End of day</span>
+        </div>
+        <div id="summary-area"></div>
+      </div>
+
+      <div class="panel">
+        <div class="pt" style="display:flex;align-items:center;justify-content:space-between">
+          <span>KPI Scorecard</span>
+          <button class="btn-sm" id="add-kpi-btn" style="display:none" onclick="toggleAddKPI()">+ Add</button>
+        </div>
+        <div id="kpi-area"></div>
+        <div id="add-kpi-form" style="display:none;margin-top:10px;border-top:0.5px solid #f0f0ec;padding-top:10px">
+          <div class="fg fg2" style="margin-bottom:6px">
+            <div><div class="fl">Metric name</div><input type="text" id="nk-metric" placeholder="e.g. Blogs"></div>
+            <div><div class="fl">Sub-metric</div><input type="text" id="nk-sub" placeholder="e.g. No. written"></div>
+          </div>
+          <div class="fg fg2" style="margin-bottom:6px">
+            <div><div class="fl">Target</div><input type="text" id="nk-target" placeholder="e.g. 2"></div>
+            <div><div class="fl">Note</div><input type="text" id="nk-note" placeholder="Optional"></div>
+          </div>
+          <div class="row-end">
+            <button class="btn-g" onclick="toggleAddKPI()">Cancel</button>
+            <button class="btn-p" onclick="saveNewKPI()">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Manager-only panels -->
+      <div class="panel" id="team-panel" style="display:none">
+        <div class="pt">Team workload</div>
+        <div id="team-area"></div>
+      </div>
+
+      <div class="panel" id="users-panel" style="display:none">
+        <div class="pt" style="display:flex;align-items:center;justify-content:space-between">
+          <span>Users</span>
+          <button class="btn-sm" onclick="toggleAddUser()">+ Add user</button>
+        </div>
+        <div id="users-area"></div>
+
+        <!-- Add user form -->
+        <div class="add-user-wrap" id="add-user-wrap">
+          <div class="fg fg2" style="margin-bottom:8px">
+            <div>
+              <div class="fl">Username (login ID) *</div>
+              <input type="text" id="nu-id" placeholder="e.g. linh" oninput="updateEnvHint()">
+            </div>
+            <div>
+              <div class="fl">Display name *</div>
+              <input type="text" id="nu-name" placeholder="e.g. Linh Nguyen">
+            </div>
+          </div>
+          <div class="fg fg2" style="margin-bottom:8px">
+            <div>
+              <div class="fl">Role label</div>
+              <input type="text" id="nu-role" placeholder="e.g. Social Media">
+            </div>
+            <div>
+              <div class="fl">Initials (2 letters)</div>
+              <input type="text" id="nu-av" placeholder="LN" maxlength="2" oninput="this.value=this.value.toUpperCase()">
+            </div>
+          </div>
+          <div>
+            <div class="fl" style="margin-bottom:5px">Brand access</div>
+            <div class="brand-checks" id="nu-brands">
+              <label class="brand-check"><input type="checkbox" value="sb" checked> Succulents Box</label>
+              <label class="brand-check"><input type="checkbox" value="hian"> Hi An Studio</label>
+              <label class="brand-check"><input type="checkbox" value="expat"> Expat Market</label>
+              <label class="brand-check"><input type="checkbox" value="snack"> Snack</label>
+            </div>
+          </div>
+
+          <!-- Env var hint — shown after username is typed -->
+          <div class="env-hint" id="env-hint" style="display:none">
+            <strong>Set this password in Netlify:</strong><br>
+            Go to <em>Netlify → Site → Environment variables</em> and add:<br>
+            <code id="env-key-display">PASSWORD_</code> = <em>the password you choose</em>
+            <br><button class="copy-btn" onclick="copyEnvKey()">&#x2398; Copy key name</button>
+          </div>
+
+          <div class="row-end" style="margin-top:10px">
+            <button class="btn-g" onclick="toggleAddUser()">Cancel</button>
+            <button class="btn-p" onclick="addUser()">Add user</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Brand access per user -->
+      <div class="panel" id="perm-panel" style="display:none">
+        <div class="pt">Brand access per person</div>
+        <div id="perm-area"></div>
+        <button class="btn-p" style="width:100%;margin-top:10px;justify-content:center" onclick="savePerms()">Save permissions</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- REPEAT MODAL -->
+<div class="overlay" id="rmodal">
+  <div class="modal">
+    <div class="modal-t">Set repeat</div>
+    <div class="modal-s" id="rmodal-name"></div>
+    <label class="ropt"><input type="radio" name="ro" value="none" checked> Don't repeat</label>
+    <label class="ropt"><input type="radio" name="ro" value="daily"> Daily (Mon–Fri)</label>
+    <label class="ropt"><input type="radio" name="ro" value="weekly"> Every week</label>
+    <label class="ropt"><input type="radio" name="ro" value="monthly"> Every month</label>
+    <div class="row-end" style="margin-top:12px">
+      <button class="btn-g" onclick="closeRmodal()">Cancel</button>
+      <button class="btn-p" onclick="applyRepeat()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  Constants
+// ─────────────────────────────────────────────
+const BRAND_LABELS = {sb:'Succulents Box',hian:'Hi An Studio',expat:'Expat Market',snack:'Snack'};
+const AVATAR_COLORS = [
+  {bg:'#e1f5ee',col:'#0f6e56'},{bg:'#eeedfe',col:'#3c3489'},{bg:'#e6f1fb',col:'#185fa5'},
+  {bg:'#faeeda',col:'#854f0b'},{bg:'#fcebeb',col:'#a32d2d'},{bg:'#f0f0ec',col:'#5f5e5a'},
+];
+
+// ── KPI Scorecard (from real EOS file) — manager-editable ──
+let kpiNextId = 100;
+function defaultKPIs() {
+  return {
+    sb:[
+      {id:'k1',metric:'Social media',sub:'Story / Posts / Reels mentioned',current:'',target:'',note:'Pending — focus on Shopify & TikTok'},
+      {id:'k2',metric:'Affiliate (Collab app)',sub:'Invitations sent',current:'',target:'',note:'Pending'},
+      {id:'k3',metric:'Affiliate (Collab app)',sub:'Total members',current:'',target:'',note:''},
+      {id:'k4',metric:'Blogs',sub:'No. blogs updated',current:'2',target:'2',note:'Weekly target'},
+      {id:'k5',metric:'Blogs',sub:'No. blogs written',current:'2',target:'2',note:'Weekly target'},
+      {id:'k6',metric:'Amazon A+ content',sub:'No. listings updated',current:'',target:'',note:'Pending'},
+      {id:'k7',metric:'Giveaway',sub:'No. giveaways hosted',current:'',target:'',note:''},
+      {id:'k8',metric:'Instagram + Pinterest',sub:'No. posts created',current:'1',target:'1',note:'Weekly target'},
+    ],
+    hian:[
+      {id:'kh1',metric:'Photostosketches social',sub:'Video scripts / week',current:'',target:'5',note:''},
+      {id:'kh2',metric:'Influencer outreach',sub:'Contacts sent',current:'',target:'',note:''},
+    ],
+    expat:[
+      {id:'ke1',metric:'ExpatMarket social',sub:'Video scripts / week',current:'',target:'7',note:''},
+      {id:'ke2',metric:'Influencer outreach',sub:'Contacts sent',current:'',target:'',note:'Work with Ms. Olivia Do'},
+    ],
+    snack:[],
+  };
+}
+function loadKPIs(){try{const k=JSON.parse(localStorage.getItem('tt_kpis'));return k||defaultKPIs();}catch{return defaultKPIs();}}
+function saveKPIs(k){localStorage.setItem('tt_kpis',JSON.stringify(k));}
+function getKPIs(){return loadKPIs();}
+function getKPIBrand(b){const all=getKPIs();if(b==='all')return [...(all.sb||[]),...(all.hian||[]),...(all.expat||[]),...(all.snack||[])];return all[b]||[];}
+
+function addKPI(brand,metric,sub,target,note){
+  const kpis=getKPIs();if(!kpis[brand])kpis[brand]=[];
+  kpis[brand].push({id:'k'+kpiNextId++,metric,sub,current:'',target,note});
+  saveKPIs(kpis);
+}
+function updateKPICurrent(id,brand,val){
+  const kpis=getKPIs();const item=(kpis[brand]||[]).find(k=>k.id===id);
+  if(item){item.current=val;saveKPIs(kpis);}
+}
+function deleteKPI(id,brand){
+  const kpis=getKPIs();kpis[brand]=(kpis[brand]||[]).filter(k=>k.id!==id);saveKPIs(kpis);
+}
+
+// ─────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────
+let session = null;
+let selectedU = null;
+let activeBrand = 'sb';
+let activeF = 'all';
+let activeP = 'all';
+let activeT = 'all';
+let rmodalId = null;
+let tasks = [];
+let nextId = 1;
+
+// ─────────────────────────────────────────────
+//  User registry (persisted in localStorage)
+// ─────────────────────────────────────────────
+function defaultUsers() {
+  return [
+    {id:'emilie', name:'Manager', label:'Full access', av:'M', bg:'#f0f0ec', col:'#5f5e5a', brands:['sb','hian','expat','snack'], isManager:true},
+    {id:'thao',   name:'Thao Nguyen', label:'Marketing Assistant', av:'TN', bg:'#e1f5ee', col:'#0f6e56', brands:['sb'],                isManager:false},
+    {id:'tung',   name:'Thanh Tung',  label:'Video Editor',        av:'TT', bg:'#eeedfe', col:'#3c3489', brands:['sb','hian','expat'], isManager:false},
+  ];
+}
+function loadUsers() {
+  try { return JSON.parse(localStorage.getItem('tt_users')) || defaultUsers(); }
+  catch { return defaultUsers(); }
+}
+function saveUsers(us) { localStorage.setItem('tt_users',JSON.stringify(us)); }
+function getUsers() { return loadUsers(); }
+function getUserById(id) { return getUsers().find(u=>u.id===id); }
+
+// ─────────────────────────────────────────────
+//  Task storage
+// ─────────────────────────────────────────────
+function saveTasks() { localStorage.setItem('tt_tasks',JSON.stringify(tasks)); localStorage.setItem('tt_nid',String(nextId)); }
+function loadTasks() {
+  const raw = localStorage.getItem('tt_tasks');
+  const nid = localStorage.getItem('tt_nid');
+  if (raw) tasks = JSON.parse(raw);
+  if (nid) nextId = parseInt(nid);
+  if (!tasks.length) seedTasks();
+}
+
+function seedTasks() {
+  const td = today();
+  const add = (t, createdBy='emilie', date=td) => { tasks.push({...t, id:nextId++, done:false, createdBy, date}); };
+
+  // ── Thao's tasks for today — from Slack daily update (Jun 1) ──
+  add({title:'Write subscription blog',brand:'sb',assignee:'thao',type:'adhoc',repeat:'none',kpi:'SB Blogs (2/week)',due:td,note:''},'thao',td);
+  add({title:'Design topfan image (template) + schedule on FB',brand:'sb',assignee:'thao',type:'adhoc',repeat:'none',kpi:'SB Social media',due:td,note:''},'thao',td);
+  add({title:'Schedule social media posts — new week',brand:'sb',assignee:'thao',type:'routine',repeat:'weekly',kpi:'SB Social media',due:td,note:''},'thao',td);
+  add({title:'Check + reply KOL / influencer emails',brand:'sb',assignee:'thao',type:'routine',repeat:'daily',kpi:'SB Affiliate invites',due:td,note:''},'thao',td);
+  add({title:'Follow + contact vendors',brand:'sb',assignee:'thao',type:'routine',repeat:'daily',kpi:'',due:td,note:''},'thao',td);
+
+  // ── Tung's tasks for today ──
+  add({title:'Complete Week 1 June video — film + edit + voice',brand:'sb',assignee:'tung',type:'video',repeat:'none',kpi:'Video content output',due:td,note:'Week 1 June script'},'tung',td);
+  add({title:'Prepare plants for next week script',brand:'sb',assignee:'tung',type:'video',repeat:'weekly',kpi:'',due:td,note:'Check plant list before filming'},'tung',td);
+
+  // ── Manager-assigned tasks (other brands) ──
+  add({title:'Create Photostosketches social content (5 scripts)',brand:'hian',assignee:'thao',type:'routine',repeat:'weekly',kpi:'Hi An Influencer pipeline',due:td,note:''});
+  add({title:'Update Hi An Studio website',brand:'hian',assignee:'thao',type:'routine',repeat:'weekly',kpi:'',due:td,note:'hianstudio.com'});
+  add({title:'Set up Etsy sales + discounts for Photostosketches',brand:'hian',assignee:'thao',type:'adhoc',repeat:'none',kpi:'',due:'2026-06-07',note:''});
+  add({title:'Create ExpatMarket social content (7 scripts)',brand:'expat',assignee:'thao',type:'routine',repeat:'weekly',kpi:'ExpatMarket scripts/week',due:td,note:''});
+  add({title:'Contact influencers for ExpatMarket',brand:'expat',assignee:'thao',type:'routine',repeat:'weekly',kpi:'',due:td,note:'Work with Ms. Olivia Do'});
+  add({title:'Send PR pitches for ExpatMarket',brand:'expat',assignee:'thao',type:'adhoc',repeat:'none',kpi:'',due:'2026-06-10',note:''});
+  saveTasks();
+}
+
+// ─────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────
+function today() { return new Date().toISOString().split('T')[0]; }
+function fmtDate(d) { if(!d)return ''; const[,m,day]=d.split('-'); const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return mo[+m-1]+' '+parseInt(day); }
+function isOverdue(t) { return t.due && t.due < today() && !t.done; }
+function getAssigneeName(id) { const u=getUserById(id); return u?u.name.split(' ')[0]:id; }
+
+// ─────────────────────────────────────────────
+//  Login
+// ─────────────────────────────────────────────
+function buildLoginList() {
+  const users = getUsers();
+  document.getElementById('user-list').innerHTML = users.map(u =>
+    `<button class="user-btn" data-u="${u.id}" onclick="selectUser(this)">
+      <div class="av" style="background:${u.bg};color:${u.col}">${u.av}</div>
+      <div><div class="uname">${u.name}</div><div class="urole">${u.label}</div></div>
+    </button>`
+  ).join('');
+}
+
+function selectUser(el) {
+  document.querySelectorAll('.user-btn').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel');
+  selectedU = el.dataset.u;
+  document.getElementById('pw-in').focus();
+}
+
+async function doLogin() {
+  if (!selectedU) { showErr('Please select a user.'); return; }
+  const pw = document.getElementById('pw-in').value;
+  if (!pw) { showErr('Enter your password.'); return; }
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try {
+    const res = await fetch('/.netlify/functions/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({user:selectedU, password:pw})
+    });
+    if (!res.ok) { const e=await res.json(); showErr(e.error||'Wrong password.'); btn.disabled=false; btn.textContent='Sign in'; return; }
+    const data = await res.json();
+    const u = getUserById(selectedU);
+    // Apply brand access from permissions override, else from server response
+    const perms = loadPerms();
+    const brands = selectedU==='emilie' ? ['sb','hian','expat','snack'] : (perms[selectedU] || data.brands || u?.brands || ['sb']);
+    session = { user:selectedU, role:data.role, brands, meta: u };
+    initApp();
+  } catch(e) {
+    // Demo mode (local, no Netlify function)
+    const u = getUserById(selectedU);
+    if (!u) { showErr('User not found.'); btn.disabled=false; btn.textContent='Sign in'; return; }
+    session = { user:selectedU, role:u.isManager?'manager':'staff', brands:u.brands, meta:u };
+    initApp();
+  }
+  btn.disabled=false; btn.textContent='Sign in';
+}
+
+function showErr(msg) { const e=document.getElementById('pw-err'); e.textContent=msg; e.style.display='block'; }
+
+function logout() {
+  session=null; selectedU=null;
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('pw-in').value='';
+  document.getElementById('pw-err').style.display='none';
+  buildLoginList();
+}
+
+// ─────────────────────────────────────────────
+//  App init
+// ─────────────────────────────────────────────
+function initApp() {
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('app').style.display='flex';
+  const u = session.meta;
+  buildBrandTabs();
+  const mgr = session.role==='manager';
+  ['team-panel','users-panel','perm-panel'].forEach(id=>document.getElementById(id).style.display=mgr?'block':'none');
+  const pf=document.getElementById('person-filter'), ps=document.getElementById('person-sep');
+  buildPersonFilter();
+  pf.style.display='flex'; ps.style.display='block';
+  // Non-managers: auto-select their own name in the person filter
+  if(!mgr){
+    activeP=session.user;
+    document.querySelectorAll('[data-p]').forEach(b=>{b.classList.toggle('on',b.dataset.p===session.user);});
+  }
+  if(mgr){ renderPermPanel(); renderUsersPanel(); }
+  render();
+}
+
+function buildBrandTabs() {
+  const brands = session.role==='manager' ? ['sb','hian','expat','snack','all'] : session.brands;
+  const container=document.getElementById('btabs'); container.innerHTML='';
+  const fs=document.getElementById('f-brand'); fs.innerHTML='';
+  brands.filter(b=>b!=='all').forEach(b=>{
+    const btn=document.createElement('button'); btn.className='btab'+(b===activeBrand?' on':''); btn.dataset.b=b; btn.textContent=BRAND_LABELS[b]; btn.onclick=()=>setBrand(b,btn); container.appendChild(btn);
+    const opt=document.createElement('option'); opt.value=b; opt.textContent=BRAND_LABELS[b]; fs.appendChild(opt);
+  });
+  if(session.role==='manager'){ const btn=document.createElement('button'); btn.className='btab'; btn.dataset.b='all'; btn.textContent='All'; btn.onclick=()=>setBrand('all',btn); container.appendChild(btn); }
+  if(!brands.includes(activeBrand)) activeBrand=brands[0]||'sb';
+  document.querySelectorAll('.btab').forEach(b=>b.classList.toggle('on',b.dataset.b===activeBrand));
+}
+
+function buildPersonFilter() {
+  const users=getUsers().filter(u=>!u.isManager);
+  const pf=document.getElementById('person-filter');
+  pf.innerHTML=`<button class="fchip on" data-p="all" onclick="setP('all',this)">Everyone</button>`+
+    users.map(u=>`<button class="fchip" data-p="${u.id}" onclick="setP('${u.id}',this)">${u.name.split(' ')[0]}</button>`).join('');
+}
+
+function buildAssigneeSelect() {
+  const users=getUsers().filter(u=>!u.isManager);
+  const fs=document.getElementById('f-assignee'); fs.innerHTML='';
+  users.forEach(u=>{ const opt=document.createElement('option'); opt.value=u.id; opt.textContent=u.name; fs.appendChild(opt); });
+}
+
+// ─────────────────────────────────────────────
+//  Filters
+// ─────────────────────────────────────────────
+function setBrand(b,el){activeBrand=b;document.querySelectorAll('.btab').forEach(x=>x.classList.remove('on'));el.classList.add('on');render();}
+function setF(f,el){activeF=f;document.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('on'));el.classList.add('on');render();}
+function setP(p,el){activeP=p;document.querySelectorAll('[data-p]').forEach(x=>x.classList.remove('on'));el.classList.add('on');render();}
+function setT(t,el){activeT=t;document.querySelectorAll('[data-t]').forEach(x=>x.classList.remove('on'));el.classList.add('on');render();}
+
+// ─────────────────────────────────────────────
+//  Add task
+// ─────────────────────────────────────────────
+function openAdd() {
+  document.getElementById('add-wrap').classList.add('open');
+  const mgr=session.role==='manager';
+  document.getElementById('add-ttl').textContent=mgr?'Assign task':'Add my task';
+  document.getElementById('f-assignee-wrap').style.display=mgr?'block':'none';
+  if(mgr) buildAssigneeSelect(); else document.getElementById('f-assignee').value=session.user;
+  if(activeBrand!=='all') document.getElementById('f-brand').value=activeBrand;
+  // Repeat is always visible — staff can choose too
+  document.getElementById('f-repeat').value='none';
+  document.getElementById('f-title').focus();
+}
+function closeAdd(){document.getElementById('add-wrap').classList.remove('open');}
+function saveTask() {
+  const title=document.getElementById('f-title').value.trim(); if(!title)return;
+  tasks.unshift({id:nextId++,title,brand:document.getElementById('f-brand').value,assignee:document.getElementById('f-assignee').value,type:document.getElementById('f-type').value,repeat:document.getElementById('f-repeat').value,kpi:document.getElementById('f-kpi').value,due:document.getElementById('f-due').value,note:document.getElementById('f-note').value.trim(),done:false,createdBy:session.user,date:today()});
+  saveTasks(); ['f-title','f-note','f-due'].forEach(id=>document.getElementById(id).value=''); document.getElementById('f-repeat').value='none'; closeAdd(); render();
+}
+
+// ─────────────────────────────────────────────
+//  Repeat modal
+// ─────────────────────────────────────────────
+function openRmodal(id){rmodalId=id;const t=tasks.find(x=>x.id===id);if(!t)return;document.getElementById('rmodal-name').textContent='"'+t.title+'"';document.querySelectorAll('[name=ro]').forEach(r=>r.checked=r.value===t.repeat);document.getElementById('rmodal').classList.add('on');}
+function closeRmodal(){document.getElementById('rmodal').classList.remove('on');rmodalId=null;}
+function applyRepeat(){if(!rmodalId)return;const t=tasks.find(x=>x.id===rmodalId);if(t){t.repeat=document.querySelector('[name=ro]:checked').value;saveTasks();}closeRmodal();render();}
+
+// ─────────────────────────────────────────────
+//  Done / Delete
+// ─────────────────────────────────────────────
+function toggleDone(id){const t=tasks.find(x=>x.id===id);if(!t)return;if(session.role!=='manager'&&t.assignee!==session.user)return;t.done=!t.done;saveTasks();render();}
+function delTask(id){if(session.role!=='manager')return;tasks=tasks.filter(x=>x.id!==id);saveTasks();render();}
+
+// ─────────────────────────────────────────────
+//  User management (manager only)
+// ─────────────────────────────────────────────
+function renderUsersPanel() {
+  const users=getUsers();
+  document.getElementById('users-area').innerHTML = users.map(u=>`
+    <div class="um-user-row">
+      <div class="av" style="background:${u.bg};color:${u.col};width:30px;height:30px;font-size:11px;flex-shrink:0">${u.av}</div>
+      <div class="um-info">
+        <div class="um-name">${u.name}</div>
+        <div class="um-meta">${u.label} · ${u.brands.map(b=>BRAND_LABELS[b]).join(', ')}</div>
+      </div>
+      <div class="um-actions">
+        ${!u.isManager?`<button class="btn-sm danger" onclick="removeUser('${u.id}')">Remove</button>`:''}
+      </div>
+    </div>`).join('');
+}
+
+function toggleAddUser() {
+  const w=document.getElementById('add-user-wrap');
+  w.classList.toggle('open');
+  if(w.classList.contains('open')){ document.getElementById('nu-id').value=''; document.getElementById('nu-name').value=''; document.getElementById('nu-role').value=''; document.getElementById('nu-av').value=''; document.getElementById('env-hint').style.display='none'; }
+}
+
+function updateEnvHint() {
+  const id=document.getElementById('nu-id').value.trim().toUpperCase();
+  const hint=document.getElementById('env-hint');
+  if(id){ hint.style.display='block'; document.getElementById('env-key-display').textContent='PASSWORD_'+id; }
+  else hint.style.display='none';
+}
+
+function copyEnvKey() {
+  const key=document.getElementById('env-key-display').textContent;
+  navigator.clipboard.writeText(key).then(()=>{ const btn=event.target; btn.textContent='✓ Copied'; setTimeout(()=>btn.innerHTML='&#x2398; Copy key name',1500); });
+}
+
+function addUser() {
+  const id=document.getElementById('nu-id').value.trim().toLowerCase().replace(/\s+/g,'');
+  const name=document.getElementById('nu-name').value.trim();
+  if(!id||!name){ alert('Username and display name are required.'); return; }
+  const users=getUsers();
+  if(users.find(u=>u.id===id)){ alert('A user with that username already exists.'); return; }
+  const role=document.getElementById('nu-role').value.trim()||'Staff';
+  const av=(document.getElementById('nu-av').value.trim()||name.split(' ').map(w=>w[0]).join('').slice(0,2)).toUpperCase();
+  const brands=[...document.querySelectorAll('#nu-brands input:checked')].map(c=>c.value);
+  if(!brands.length){ alert('Select at least one brand.'); return; }
+  const color=AVATAR_COLORS[users.length % AVATAR_COLORS.length];
+  users.push({id,name,label:role,av,bg:color.bg,col:color.col,brands,isManager:false});
+  saveUsers(users);
+  toggleAddUser();
+  renderUsersPanel();
+  buildPersonFilter();
+  alert(`User "${name}" added.\n\nTo set their password, go to:\nNetlify → Site → Environment variables\nAdd: PASSWORD_${id.toUpperCase()} = <their password>\nThen redeploy.`);
+}
+
+function removeUser(id) {
+  if(!confirm('Remove this user? Their tasks will remain but they won\'t be able to log in.'))return;
+  const users=getUsers().filter(u=>u.id!==id);
+  saveUsers(users);
+  renderUsersPanel();
+  buildPersonFilter();
+  buildLoginList();
+}
+
+// ─────────────────────────────────────────────
+//  Permissions (brand access per user)
+// ─────────────────────────────────────────────
+function loadPerms(){try{return JSON.parse(localStorage.getItem('tt_perms'))||{};}catch{return {};}}
+function renderPermPanel() {
+  const perms=loadPerms();
+  const users=getUsers().filter(u=>!u.isManager);
+  document.getElementById('perm-area').innerHTML=users.map(u=>{
+    const cur=perms[u.id]||u.brands;
+    return `<div style="margin-bottom:12px;padding-bottom:12px;border-bottom:0.5px solid #f5f5f3">
+      <div style="font-size:12px;font-weight:500;margin-bottom:6px;display:flex;align-items:center;gap:7px">
+        <div class="av" style="background:${u.bg};color:${u.col};width:24px;height:24px;font-size:10px">${u.av}</div>${u.name}
+      </div>
+      <div class="brand-checks">
+        ${['sb','hian','expat','snack'].map(b=>`<label class="brand-check"><input type="checkbox" data-u="${u.id}" data-b="${b}" ${cur.includes(b)?'checked':''}> ${BRAND_LABELS[b]}</label>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+function savePerms(){
+  const perms={};
+  document.querySelectorAll('#perm-area input[type=checkbox]').forEach(cb=>{
+    if(!perms[cb.dataset.u])perms[cb.dataset.u]=[];
+    if(cb.checked)perms[cb.dataset.u].push(cb.dataset.b);
+  });
+  localStorage.setItem('tt_perms',JSON.stringify(perms));
+  alert('Saved. Changes apply on next sign-in.');
+}
+
+// ─────────────────────────────────────────────
+//  Render
+// ─────────────────────────────────────────────
+function getFiltered() {
+  const q=(document.getElementById('search-in')||{}).value?.toLowerCase()||'';
+  return tasks.filter(t=>{
+    if(activeBrand!=='all'&&t.brand!==activeBrand)return false;
+    if(activeP!=='all'&&t.assignee!==activeP)return false;
+    if(activeT!=='all'&&t.type!==activeT)return false;
+    if(q&&!t.title.toLowerCase().includes(q)&&!(t.note||'').toLowerCase().includes(q))return false;
+    if(session.role!=='manager'&&!session.brands.includes(t.brand))return false;
+    return true;
+  });
+}
+
+function typeBadge(tp){return tp==='routine'?'<span class="b br">Routine</span>':tp==='video'?'<span class="b bv">Video</span>':'<span class="b ba">Ad hoc</span>';}
+function brandBadge(b){return`<span class="b b${b}">${BRAND_LABELS[b]||b}</span>`;}
+function rcBadge(r){if(!r||r==='none')return '';const L={daily:'↻ Daily',weekly:'↻ Weekly',monthly:'↻ Monthly'};return`<span class="rc">${L[r]}</span>`;}
+
+function renderTasks() {
+  const all=getFiltered(), active=all.filter(t=>!t.done), done=all.filter(t=>t.done);
+  const mgr=session.role==='manager';
+  const td=today();
+  function card(t){
+    const od=isOverdue(t), ca=mgr||t.assignee===session.user;
+    return `<div class="tc ${t.done?'done-c':''}" id="tc${t.id}">
+      <div class="chk ${t.done?'on':''}" onclick="${ca?`toggleDone(${t.id})`:''}">${t.done?'✓':''}</div>
+      <div class="ti">
+        <div class="tt">${t.title}</div>
+        ${t.note?`<div class="tn">${t.note}</div>`:''}
+        <div class="tm">
+          ${typeBadge(t.type)}
+          ${activeBrand==='all'?brandBadge(t.brand):''}
+          <span class="ac">${getAssigneeName(t.assignee)}</span>
+          ${rcBadge(t.repeat)}
+          ${t.kpi?`<span class="kc">⬡ ${t.kpi}</span>`:''}
+          ${t.due&&!t.done?`<span class="${od?'od':'mt'}">Due ${fmtDate(t.due)}</span>`:''}
+          ${!mgr&&t.createdBy==='emilie'?'<span class="mt">assigned by Manager</span>':''}
+        </div>
+      </div>
+      <div class="tc-actions">
+        ${ca?`<button class="ic-btn" title="Set repeat" onclick="openRmodal(${t.id})">↻</button>`:''}
+        ${mgr?`<button class="ic-btn del" title="Delete" onclick="delTask(${t.id})">✕</button>`:''}
+      </div>
+    </div>`;
+  }
+  let html='';
+  const overdue=active.filter(t=>isOverdue(t));
+  if(overdue.length){html+=`<div class="sh"><span style="color:#a32d2d">⚠</span> Overdue <span class="cnt">${overdue.length}</span></div><div class="tlist">`;overdue.forEach(t=>html+=card(t));html+='</div>';}
+  const curr=active.filter(t=>!isOverdue(t));
+  if(curr.length){html+=`<div class="sh">Active <span class="cnt">${curr.length}</span></div><div class="tlist">`;curr.forEach(t=>html+=card(t));html+='</div>';}
+  if(!active.length)html+='<div class="empty">No active tasks for this view.</div>';
+  if(done.length){html+=`<div class="sh" style="cursor:pointer" onclick="var el=document.getElementById('dl');el.style.display=el.style.display==='none'?'flex':'none'">✓ Completed <span class="cnt">${done.length}</span> ▾</div><div id="dl" class="tlist" style="display:none">`;done.forEach(t=>html+=card(t));html+='</div>';}
+  document.getElementById('task-area').innerHTML=html;
+}
+
+// ── Daily summary ──
+function renderSummary() {
+  const mgr = session && session.role === 'manager';
+  // Scope: tasks visible to the current person + brand filter
+  const brand = activeBrand;
+  let pool = tasks.filter(t => brand === 'all' || t.brand === brand);
+  // Non-managers only see their own tasks for the summary
+  if (!mgr) pool = pool.filter(t => t.assignee === session.user);
+
+  const done   = pool.filter(t => t.done);
+  const pending = pool.filter(t => !t.done);
+  const routineDone  = done.filter(t => t.type === 'routine' || t.repeat !== 'none');
+  const onetimeDone  = done.filter(t => t.type !== 'routine' && t.repeat === 'none');
+  const routinePend  = pending.filter(t => t.type === 'routine' || t.repeat !== 'none');
+  const onetimePend  = pending.filter(t => t.type !== 'routine' && t.repeat === 'none');
+
+  // Date label
+  const now = new Date();
+  const dayLabel = now.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+  document.getElementById('summary-date').textContent = dayLabel;
+
+  const bar = (done, total) => {
+    if (!total) return '';
+    const pct = Math.round(done / total * 100);
+    const col = pct >= 80 ? '#1d9e75' : pct >= 40 ? '#ef9f27' : '#e24b4a';
+    return `<div style="height:4px;background:#f0f0ec;border-radius:2px;margin-top:4px"><div style="height:4px;border-radius:2px;background:${col};width:${pct}%"></div></div>`;
+  };
+
+  document.getElementById('summary-area').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div style="background:#f5f5f3;border-radius:8px;padding:9px 11px">
+        <div style="font-size:20px;font-weight:600;color:#1a1a1a">${done.length}</div>
+        <div style="font-size:11px;color:#888;margin-top:1px">Tasks done</div>
+        ${bar(done.length, pool.length)}
+      </div>
+      <div style="background:#f5f5f3;border-radius:8px;padding:9px 11px">
+        <div style="font-size:20px;font-weight:600;color:${pending.length>0?'#e24b4a':'#1d9e75'}">${pending.length}</div>
+        <div style="font-size:11px;color:#888;margin-top:1px">Pending</div>
+        ${bar(pending.length, pool.length)}
+      </div>
+    </div>
+    <div style="font-size:11px;color:#555;margin-bottom:6px;font-weight:500">By type</div>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px">
+        <span style="color:#777">Routine / repeating</span>
+        <span><span style="color:#1d9e75;font-weight:500">${routineDone.length} done</span> · <span style="color:#aaa">${routinePend.length} left</span></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px">
+        <span style="color:#777">One-time / ad hoc</span>
+        <span><span style="color:#1d9e75;font-weight:500">${onetimeDone.length} done</span> · <span style="color:#aaa">${onetimePend.length} left</span></span>
+      </div>
+    </div>
+    ${done.length === pool.length && pool.length > 0 ? '<div style="margin-top:10px;text-align:center;font-size:11px;color:#1d9e75;font-weight:500">✓ All done for today!</div>' : ''}
+  `;
+}
+
+// ── KPI UI helpers ──
+function toggleAddKPI(){const f=document.getElementById('add-kpi-form');f.style.display=f.style.display==='none'?'block':'none';}
+function saveNewKPI(){
+  const metric=document.getElementById('nk-metric').value.trim();if(!metric)return;
+  const brand=activeBrand==='all'?'sb':activeBrand;
+  addKPI(brand,metric,document.getElementById('nk-sub').value.trim(),document.getElementById('nk-target').value.trim(),document.getElementById('nk-note').value.trim());
+  ['nk-metric','nk-sub','nk-target','nk-note'].forEach(id=>document.getElementById(id).value='');
+  toggleAddKPI();renderRight();
+}
+
+function renderRight() {
+  const mgr=session&&session.role==='manager';
+  // Show + Add button for manager
+  const addBtn=document.getElementById('add-kpi-btn');
+  if(addBtn)addBtn.style.display=mgr?'block':'none';
+
+  // KPI Scorecard — real data from EOS file
+  const kpis=getKPIBrand(activeBrand);
+  const brand=activeBrand==='all'?'sb':activeBrand;
+  document.getElementById('kpi-area').innerHTML=kpis.length?kpis.map(k=>{
+    const hasTarget=k.target!=='';
+    const hasCurrent=k.current!=='';
+    const ok=hasTarget&&hasCurrent&&parseFloat(k.current)>=parseFloat(k.target);
+    const pending=k.note&&k.note.toLowerCase().includes('pending');
+    return `<div style="padding:6px 0;border-bottom:0.5px solid #f5f5f3">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:500;color:#555">${k.metric}</div>
+          ${k.sub?`<div style="font-size:10px;color:#aaa">${k.sub}</div>`:''}
+          ${k.note?`<div style="font-size:10px;color:#c0a060;margin-top:1px">${k.note}</div>`:''}
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+          ${mgr?`<input type="text" value="${k.current}" placeholder="—" title="Current value" style="width:42px;padding:2px 5px;font-size:11px;text-align:center;border:0.5px solid #e0e0da;border-radius:5px" onchange="updateKPICurrent('${k.id}','${brand==='all'?'sb':brand}',this.value);renderRight()">`
+          :`<span style="font-size:12px;font-weight:500">${k.current||'—'}</span>`}
+          ${hasTarget?`<span style="font-size:10px;color:#ccc">/ ${k.target}</span>`:''}
+          ${hasCurrent&&hasTarget?`<span style="font-size:10px;color:${ok?'#1d9e75':'#e24b4a'}">${ok?'▲':'▼'}</span>`:''}
+          ${pending?`<span style="font-size:9px;background:#faeeda;color:#854f0b;padding:1px 5px;border-radius:5px">pending</span>`:''}
+          ${mgr?`<button style="font-size:10px;color:#ddd;border:none;background:transparent;cursor:pointer;padding:1px 3px;border-radius:3px" onmouseover="this.style.color='#a32d2d'" onmouseout="this.style.color='#ddd'" onclick="deleteKPI('${k.id}','${brand}');renderRight()" title="Remove">✕</button>`:''}
+        </div>
+      </div>
+    </div>`;
+  }).join('')+'<div style="font-size:10px;color:#bbb;margin-top:8px">Source: EOS Scorecard · Succulents Box + LIM · Thao</div>'
+  :'<div class="empty">No KPI metrics. Manager can add them with + Add.</div>';
+
+  if(mgr){
+    const ft=tasks.filter(t=>activeBrand==='all'||t.brand===activeBrand);
+    const staff=getUsers().filter(u=>!u.isManager);
+    document.getElementById('team-area').innerHTML=staff.map(u=>{const mine=ft.filter(t=>t.assignee===u.id);const done=mine.filter(t=>t.done).length;return`<div style="display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:0.5px solid #f5f5f3;font-size:12px"><div class="av" style="background:${u.bg};color:${u.col};width:26px;height:26px;font-size:10px">${u.av}</div><div style="flex:1"><div style="font-weight:500">${u.name}</div><div style="color:#bbb;font-size:11px">${mine.length-done} active · ${done} done</div></div></div>`;}).join('');
+  }
+}
+
+function renderDayStrip() {
+  const strip = document.getElementById('day-strip');
+  if (!strip) return;
+  const mgr = session.role === 'manager';
+  // Scope to current person filter + brand
+  let pool = tasks.filter(t => {
+    if (activeBrand !== 'all' && t.brand !== activeBrand) return false;
+    if (!mgr && t.assignee !== session.user) return false;
+    if (activeP !== 'all' && t.assignee !== activeP) return false;
+    return t.date === today();
+  });
+  const done = pool.filter(t => t.done).length;
+  const total = pool.length;
+  const pending = total - done;
+  if (!total) { strip.style.display = 'none'; return; }
+  const pct = total ? Math.round(done / total * 100) : 0;
+  const col = pct === 100 ? '#1d9e75' : pct >= 50 ? '#ef9f27' : '#e24b4a';
+  const dayLabel = new Date().toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
+  strip.style.display = 'flex';
+  strip.innerHTML = `
+    <span style="font-size:11px;font-weight:500;color:#888">${dayLabel}</span>
+    <span style="width:0.5px;height:12px;background:#e0e0da;flex-shrink:0"></span>
+    <span style="font-size:11px;color:#1a1a1a;font-weight:500">${total} tasks today</span>
+    <span style="font-size:11px;color:#1d9e75;font-weight:500">${done} done</span>
+    <span style="font-size:11px;color:${pending > 0 ? '#e24b4a' : '#1d9e75'};font-weight:500">${pending} pending</span>
+    <span style="flex:1;height:4px;background:#f0f0ec;border-radius:2px;min-width:40px"><span style="display:block;height:4px;border-radius:2px;background:${col};width:${pct}%"></span></span>
+    ${pct === 100 ? '<span style="font-size:11px;color:#1d9e75;font-weight:500">✓ All done!</span>' : ''}
+  `;
+}
+
+function render(){if(session){renderDayStrip();renderTasks();renderRight();renderSummary();}}
+
+// ── Boot ──
+loadTasks();
+buildLoginList();
+</script>
+</body>
+</html>
