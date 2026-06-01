@@ -765,8 +765,8 @@ function openAdd() {
   // Assign to — manager only
   document.getElementById('f-assignee-wrap').style.display = mgr ? 'block' : 'none';
   if (mgr) buildAssigneeSelect(); else document.getElementById('f-assignee').value = session.user;
-  // Bulk tab — manager only
-  document.getElementById('tab-bulk').style.display = mgr ? '' : 'none';
+  // Bulk tab — everyone
+  document.getElementById('tab-bulk').style.display = '';
   // Always start on single tab
   setAddTab('single');
   // Set brand
