@@ -970,7 +970,7 @@ function renderTasks() {
   function card(t){
     const od=isOverdue(t), ca=mgr||t.assignee===session.user;
     return `<div class="tc ${t.done?'done-c':''}" id="tc${t.id}">
-      <div class="chk ${t.done?'on':''}" onclick="${ca?`toggleDone(${t.id})`:''}">${t.done?'✓':''}</div>
+      <div class="chk ${t.done?'on':''}" onclick="${ca?`toggleDone(${t.id})`:''}" title="${t.done?'Click to mark undone':'Mark done'}">${t.done?'✓':''}</div>
       <div class="ti">
         <div class="tt">${t.title}</div>
         ${t.note?`<div class="tn">${t.note}</div>`:''}
@@ -997,7 +997,7 @@ function renderTasks() {
   const curr=active.filter(t=>!isOverdue(t));
   if(curr.length){html+=`<div class="sh">Active <span class="cnt">${curr.length}</span></div><div class="tlist">`;curr.forEach(t=>html+=card(t));html+='</div>';}
   if(!active.length)html+='<div class="empty">No active tasks for this view.</div>';
-  if(done.length){html+=`<div class="sh" style="cursor:pointer" onclick="var el=document.getElementById('dl');el.style.display=el.style.display==='none'?'flex':'none'">✓ Completed <span class="cnt">${done.length}</span> ▾</div><div id="dl" class="tlist" style="display:none">`;done.forEach(t=>html+=card(t));html+='</div>';}
+  if(done.length){html+=`<div class="sh" style="cursor:pointer" onclick="var el=document.getElementById('dl');el.style.display=el.style.display==='none'?'flex':'none'">✓ Completed <span class="cnt">${done.length}</span> <span style="font-size:9px;color:#bbb;font-weight:400;text-transform:none;margin-left:4px">click task to undo</span> ▾</div><div id="dl" class="tlist">`;done.forEach(t=>html+=card(t));html+='</div>';}
   document.getElementById('task-area').innerHTML=html;
 }
 
