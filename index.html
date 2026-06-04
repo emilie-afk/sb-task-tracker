@@ -745,6 +745,24 @@ function buildAssigneeSelect() {
   const users=getUsers().filter(u=>!u.isManager);
   const fs=document.getElementById('f-assignee'); fs.innerHTML='';
   users.forEach(u=>{ const opt=document.createElement('option'); opt.value=u.id; opt.textContent=u.name; fs.appendChild(opt); });
+  // When assignee changes, filter brand dropdown to their accessible brands
+  fs.onchange = () => updateBrandForAssignee(fs.value);
+  updateBrandForAssignee(fs.value);
+}
+
+function updateBrandForAssignee(userId) {
+  const u = getUserById(userId);
+  const perms = loadPerms();
+  const brands = (perms[userId] || u?.brands || ['sb']).filter(b => b !== 'all');
+  const fb = document.getElementById('f-brand');
+  const current = fb.value;
+  fb.innerHTML = '';
+  brands.forEach(b => {
+    const opt = document.createElement('option');
+    opt.value = b; opt.textContent = BRAND_LABELS[b]; fb.appendChild(opt);
+  });
+  // Keep selection if still valid, else default to first
+  fb.value = brands.includes(current) ? current : brands[0] || 'sb';
 }
 
 // ─────────────────────────────────────────────
@@ -769,8 +787,13 @@ function openAdd() {
   document.getElementById('tab-bulk').style.display = '';
   // Always start on single tab
   setAddTab('single');
-  // Set brand
-  if (activeBrand !== 'all') document.getElementById('f-brand').value = activeBrand;
+  // For staff: filter brand dropdown to their own accessible brands
+  if (!mgr) updateBrandForAssignee(session.user);
+  // Set brand to current active tab if valid
+  if (activeBrand !== 'all') {
+    const fb = document.getElementById('f-brand');
+    if ([...fb.options].some(o => o.value === activeBrand)) fb.value = activeBrand;
+  }
   document.getElementById('f-repeat').value = 'none';
   document.getElementById('f-title').focus();
 }
