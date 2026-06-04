@@ -849,7 +849,7 @@ function applyRepeat(){if(!rmodalId)return;const t=tasks.find(x=>x.id===rmodalId
 //  Done / Delete
 // ─────────────────────────────────────────────
 function toggleDone(id){const t=tasks.find(x=>x.id===id);if(!t)return;if(session.role!=='manager'&&t.assignee!==session.user)return;t.done=!t.done;t.completedAt=t.done?today():null;saveTasks();render();}
-function delTask(id){if(session.role!=='manager')return;tasks=tasks.filter(x=>x.id!==id);saveTasks();render();}
+function delTask(id){const t=tasks.find(x=>x.id===id);if(!t)return;if(session.role!=='manager'&&t.assignee!==session.user)return;tasks=tasks.filter(x=>x.id!==id);saveTasks();render();}
 
 // ─────────────────────────────────────────────
 //  User management (manager only)
@@ -987,7 +987,7 @@ function renderTasks() {
       <div class="tc-actions">
         ${ca?`<button class="ic-btn" title="Edit" onclick="openEmodal(${t.id})">✎</button>`:''}
         ${ca?`<button class="ic-btn" title="Set repeat" onclick="openRmodal(${t.id})">↻</button>`:''}
-        ${mgr?`<button class="ic-btn del" title="Delete" onclick="delTask(${t.id})">✕</button>`:''}
+        ${ca?`<button class="ic-btn del" title="Delete" onclick="delTask(${t.id})">✕</button>`:''}
       </div>
     </div>`;
   }
