@@ -787,7 +787,7 @@ function saveBulkTasks(){
   const lines=document.getElementById('f-bulk').value.split('\n').map(l=>l.trim()).filter(l=>l);
   if(!lines.length){document.getElementById('f-bulk').focus();return;}
   const brand=document.getElementById('f-brand').value;
-  const assignee=document.getElementById('f-assignee').value;
+  const assignee=session.role==='manager'?document.getElementById('f-assignee').value:session.user;
   const type=document.getElementById('f-type').value;
   const repeat=document.getElementById('f-repeat').value;
   const kpi=document.getElementById('f-kpi').value;
@@ -805,7 +805,9 @@ function saveBulkTasks(){
 
 function saveTask() {
   const title=document.getElementById('f-title').value.trim(); if(!title)return;
-  tasks.unshift({id:nextId++,title,brand:document.getElementById('f-brand').value,assignee:document.getElementById('f-assignee').value,type:document.getElementById('f-type').value,repeat:document.getElementById('f-repeat').value,kpi:document.getElementById('f-kpi').value,due:document.getElementById('f-due').value,note:document.getElementById('f-note').value.trim(),done:false,createdBy:session.user,date:today()});
+  const mgr=session.role==='manager';
+  const assignee=mgr?document.getElementById('f-assignee').value:session.user;
+  tasks.unshift({id:nextId++,title,brand:document.getElementById('f-brand').value,assignee,type:document.getElementById('f-type').value,repeat:document.getElementById('f-repeat').value,kpi:document.getElementById('f-kpi').value,due:document.getElementById('f-due').value,note:document.getElementById('f-note').value.trim(),done:false,createdBy:session.user,date:today()});
   saveTasks(); ['f-title','f-note','f-due'].forEach(id=>document.getElementById(id).value=''); document.getElementById('f-repeat').value='none'; closeAdd(); render();
 }
 
