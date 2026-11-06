@@ -1,6 +1,13 @@
 [build]
-  publish = "."
+  command = "npm run build && npm run check:public"
+  publish = "dist"
   functions = "netlify/functions"
+
+# Migrations are NOT run by the build. An operator runs them deliberately (docs/OPERATIONS.md).
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["exceljs"]
 
 [[headers]]
   for = "/*"
@@ -8,3 +15,13 @@
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "same-origin"
+    X-Robots-Tag = "noindex, nofollow"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"

@@ -1,4 +1,15 @@
-.env
-.env.local
 node_modules/
+dist/
+.netlify/
+.env
+.env.*
+!.env.example
+*.local
+# Private migration exports, backups and review material never belong in Git.
+private/
+exports/
+backups/
+*.export.json
+tt-legacy-export*.json
+*.log
 .DS_Store

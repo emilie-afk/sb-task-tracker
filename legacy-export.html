@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Export old tracker data</title>
+<link rel="stylesheet" href="/legacy-export.css">
+</head>
+<body>
+<main class="wrap">
+  <h1>Export old tracker data from this browser</h1>
+  <p>The old Task Tracker stored tasks and KPI scorecards only in each browser. This page reads that saved data
+     from <strong>this browser only</strong> and downloads it as a file on this computer.</p>
+  <ul>
+    <li>Nothing is uploaded or sent anywhere, and nothing is erased from this browser.</li>
+    <li>Old passwords, roles and brand permissions are not exported.</li>
+    <li>Give the file only to a Task Tracker administrator, who imports it through the private import screen. Do not
+        share it in public places or commit it to Git.</li>
+  </ul>
+  <p id="status" role="status">Checking this browser…</p>
+  <button id="download" type="button" disabled>Download export file</button>
+</main>
+<script src="/legacy-export.js"></script>
+</body>
+</html>
