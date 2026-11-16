@@ -249,6 +249,37 @@ export async function integrationsView(root: HTMLElement, _ctx: Ctx) {
   const area = h("div");
   replace(root, h("div", { class: "page" }, h("h2", null, "Marketing dashboard reporting"),
     h("div", { class: "sub" }, "The marketing dashboard reads tasks from this tracker with its own read-only credential (one way). This tracker stays the place where its tasks are edited. Only brands you map and enable are sent; no emails, notes or account lists are included."), area));
+  const planningBox = h("div");
+  // Marketing planning: the dashboard's planning owner publishes plans and the dashboard creates their tasks here.
+  async function loadPlanning() {
+    try {
+      const p = await api("/integrations/planning");
+      const scope = h("div", { class: "brand-checks" }, ...p.supported_dashboard_businesses.map((b: string) => h("label", { class: "brand-check" },
+        h("input", { type: "checkbox", value: b, checked: (p.credential?.allowed_business_ids ?? ["sb"]).includes(b) }), b)));
+      const secretBox = h("div"), e3 = h("div");
+      replace(planningBox, h("h2", { style: "margin-top:24px" }, "Marketing planning"),
+        h("div", { class: "sub" }, "Lets the marketing dashboard create the tasks of a published marketing plan here, as the administrator who creates this credential and with the same rules as the task editor. Only active brands that are mapped and sent to the dashboard can be used. The tasks belong to this tracker: they are completed and edited here."),
+        !p.dashboard_url_configured ? msg("notice", "MARKETING_DASHBOARD_URL is not set on the server, so tasks will not link back to their plan.") : null,
+        h("div", { class: "card" },
+          h("div", { class: "fl" }, "Planning credential"),
+          p.credential ? h("div", { class: "note-line" }, `Active since ${fmtTime(p.credential.created_at)} · acts as ${p.credential.acting_as}${p.credential.acting_ok ? "" : " (no longer an active administrator: the credential does not work)"} · last used ${p.credential.last_used_at ? fmtTime(p.credential.last_used_at) : "never"} · businesses: ${p.credential.allowed_business_ids.join(", ")}`)
+            : h("div", { class: "note-line" }, "None. The dashboard cannot create tasks."),
+          h("div", { class: "fl" }, "Dashboard businesses plans may create tasks for"), scope,
+          h("div", { class: "row" },
+            h("button", { class: "btn-p", on: { click: async () => {
+              if (p.credential && !confirm("Create a new planning credential? The current one stops working immediately.")) return;
+              const allowed = [...scope.querySelectorAll<HTMLInputElement>("input:checked")].map((i) => i.value);
+              await attempt(e3, async () => {
+                const c = await api("/integrations/planning/credential", { method: "POST", json: { allowed_business_ids: allowed } });
+                const box = h("input", { type: "text", class: "secret", value: c.secret, readOnly: true, "aria-label": "Planning secret" });
+                replace(secretBox, msg("notice", "Copy this secret now into the marketing dashboard's server settings (TASK_TRACKER_PLANNING_SECRET). It is not shown again and is not stored here."), box);
+                box.select();
+              });
+            } } }, p.credential ? "Replace credential" : "Create credential"),
+            p.credential ? h("button", { class: "btn-sm danger", on: { click: async () => { if (confirm("Revoke the planning credential? The dashboard can no longer create tasks; existing tasks stay.")) { await api("/integrations/planning/credential", { method: "DELETE" }).catch((e) => alert(errorText(e))); loadPlanning(); } } } }, "Revoke") : null),
+          e3, secretBox));
+    } catch (e) { replace(planningBox, msg("error", errorText(e))); }
+  }
   async function load() {
     try {
       const r = await api("/integrations/reporting");
@@ -278,7 +309,9 @@ export async function integrationsView(root: HTMLElement, _ctx: Ctx) {
         h("table", { class: "tbl" }, h("thead", null, h("tr", null, ...["Brand", "Mapping", "Sent to dashboard"].map((x) => h("th", null, x)))),
           h("tbody", null, ...r.brands.map((b: any) => h("tr", null, h("td", null, b.name, b.archived ? h("span", { class: "arch-label" }, "Archived") : null),
             h("td", null, b.dashboard_business_id ?? h("span", { class: "muted" }, "Not mapped")), h("td", null, b.included ? h("span", { class: "green" }, b.reason) : h("span", { class: "muted" }, b.reason)))))),
-        h("div", { class: "note-line" }, "Change a brand's mapping on the Brands screen."));
+        h("div", { class: "note-line" }, "Change a brand's mapping on the Brands screen."),
+        planningBox);
+      loadPlanning();
     } catch (e) { replace(area, msg("error", errorText(e))); }
   }
   await load();

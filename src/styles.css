@@ -86,6 +86,7 @@ textarea{resize:vertical;min-height:44px}
 .tt{font-size:13px;font-weight:500;line-height:1.4}
 .tc.done-c .tt{text-decoration:line-through;color:#ccc}
 .tn{font-size:12px;color:#999;margin-top:2px;line-height:1.4}
+.tn-full{white-space:pre-line}
 .tm{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center}
 .b{font-size:10px;padding:2px 7px;border-radius:8px;font-weight:500;white-space:nowrap}
 .br{background:#e1f5ee;color:#0f6e56}
