@@ -41,3 +41,15 @@ export function supportedDashboardBusinesses(): string[] {
   const raw = (process.env.DASHBOARD_BUSINESS_IDS ?? "sb,p2s,perksradar").split(",").map((s) => s.trim()).filter(Boolean);
   return [...new Set(raw.filter((s) => /^[a-z0-9_-]{1,40}$/.test(s)))];
 }
+
+/** The marketing dashboard's https origin, used only to build "Open plan" links on tasks created from plans. */
+export function dashboardOrigin(): string | null {
+  const raw = (process.env.MARKETING_DASHBOARD_URL ?? "").trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    const localDev = u.protocol === "http:" && ["localhost", "127.0.0.1"].includes(u.hostname) && !isDeployed();
+    if ((u.protocol !== "https:" && !localDev) || u.username || u.password || u.search || u.hash || (u.pathname !== "/" && u.pathname !== "")) return null;
+    return u.origin;
+  } catch { return null; }
+}

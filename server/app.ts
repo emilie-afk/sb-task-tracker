@@ -10,6 +10,7 @@ import { readSession, loginRedirect, handleCallback, logoutResponse, csrfToken, 
 import { appOrigin } from "./config";
 import { hit, accountKey, RATE } from "./rateLimit";
 import { handleReporting } from "./reporting";
+import { handlePlanning } from "./planning";
 import { registerTasks } from "./routes/tasks";
 import { registerPeople } from "./routes/people";
 import { registerBrands } from "./routes/brands";
@@ -44,6 +45,7 @@ export function createApp() {
       if (path === "/auth/login" && req.method === "GET") return await loginRedirect(req);
       if (path === "/auth/callback" && req.method === "GET") return await handleCallback(req);
       if (path.startsWith("/reporting/")) return await handleReporting(req, path);
+      if (path.startsWith("/planning/")) return await handlePlanning(req, path);
 
       const session = await readSession(req);
       const mutation = !["GET", "HEAD"].includes(req.method);

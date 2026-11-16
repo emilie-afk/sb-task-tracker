@@ -8,7 +8,7 @@ import { query, one, tx } from "../db";
 import { badRequest, readJson } from "../http";
 import { parse } from "../validate";
 import { audit } from "../audit";
-import { instanceId, supportedDashboardBusinesses } from "../config";
+import { instanceId, supportedDashboardBusinesses, dashboardOrigin } from "../config";
 import { hit, accountKey, RATE } from "../rateLimit";
 
 export function registerIntegrations(r: Router) {
@@ -48,6 +48,40 @@ export function registerIntegrations(r: Router) {
     await tx(async (c) => {
       const n = (await c.query("update reporting_credentials set revoked_at = now(), revoked_by = $1 where revoked_at is null", [s.userId])).rowCount;
       if (n) await audit(c, s.userId, "integration.reporting_credential_revoked", "integration", "reporting");
+    });
+    return { ok: true };
+  }, true);
+
+  // ---- Marketing planning (dashboard -> tracker task creation). The credential acts as the administrator who
+  // creates it, through the task editor's own rules.
+  r.get("/integrations/planning", ADMIN, async () => {
+    const cred = await one(`select c.created_at, c.last_used_at, c.allowed_business_ids, u.display_name acting_as, u.status acting_status, u.role acting_role
+                              from planning_credentials c join users u on u.id = c.acting_user_id where c.revoked_at is null`);
+    const brands = (await query<any>("select display_name, status, reporting_enabled, dashboard_business_id from brands order by lower(display_name)")).map((b) => ({
+      name: b.display_name, available: !!cred && b.status === "active" && b.reporting_enabled && (cred.allowed_business_ids as string[]).includes(b.dashboard_business_id),
+    }));
+    return { credential: cred ? { ...cred, acting_ok: cred.acting_status !== "archived" && cred.acting_role === "administrator" } : null,
+      dashboard_url_configured: !!dashboardOrigin(), brands, supported_dashboard_businesses: supportedDashboardBusinesses() };
+  });
+
+  r.post("/integrations/planning/credential", ADMIN, async ({ req, session: s }) => {
+    await hit({ bucket: `sens:${accountKey(s.userId)}`, ...RATE.sensitive });
+    const b = parse(z.object({ allowed_business_ids: z.array(z.string().regex(/^[a-z0-9_-]{1,40}$/)).min(1).max(10).default(["sb"]) }).strict(), await readJson(req));
+    if (b.allowed_business_ids.some((x) => !supportedDashboardBusinesses().includes(x))) throw badRequest("Unsupported dashboard business.");
+    const secret = "tpl_" + randomBytes(32).toString("base64url");
+    await tx(async (c) => {
+      await c.query("update planning_credentials set revoked_at = now(), revoked_by = $1 where revoked_at is null", [s.userId]);
+      await c.query("insert into planning_credentials (key_hash, acting_user_id, allowed_business_ids, created_by) values ($1,$2,$3,$2)",
+        [createHash("sha256").update(secret).digest(), s.userId, [...new Set(b.allowed_business_ids)]]);
+      await audit(c, s.userId, "integration.planning_credential_created", "integration", "planning", { allowed_business_ids: b.allowed_business_ids });
+    });
+    return { secret, allowed_business_ids: b.allowed_business_ids };
+  }, true);
+
+  r.delete("/integrations/planning/credential", ADMIN, async ({ session: s }) => {
+    await tx(async (c) => {
+      const n = (await c.query("update planning_credentials set revoked_at = now(), revoked_by = $1 where revoked_at is null", [s.userId])).rowCount;
+      if (n) await audit(c, s.userId, "integration.planning_credential_revoked", "integration", "planning");
     });
     return { ok: true };
   }, true);

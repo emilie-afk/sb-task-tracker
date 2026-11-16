@@ -14,6 +14,7 @@ import {
 } from "../tasks";
 import { loadAssignments, ownerOn, recordReassignment, type Assignment } from "../ownership";
 import type { Session } from "../auth";
+import { planLinkFor } from "../planning";
 
 const SELECT = `
   select t.*, b.display_name brand_name, b.color brand_color, b.status brand_status,
@@ -108,11 +109,11 @@ const createBase = {
   note: text(2000).nullable().optional(),
   kpi_id: uuid.nullable().optional(),
 };
-const createSchema = z.object({ title: line(300), ...createBase }).strict();
+export const createSchema = z.object({ title: line(300), ...createBase }).strict();
 const bulkSchema = z.object({ titles: z.array(line(300)).min(1).max(50), ...createBase }).strict();
 
 /** Checks shared by single and bulk creation. Returns the resolved assignee. */
-async function prepareCreate(c: any, s: Session, b: z.infer<typeof createSchema> | z.infer<typeof bulkSchema>) {
+export async function prepareCreate(c: any, s: Session, b: z.infer<typeof createSchema> | z.infer<typeof bulkSchema>) {
   let assignee = b.assignee_id ?? s.userId;
   if (!isAdmin(s)) {
     if (assignee !== s.userId) throw forbidden("Staff can create tasks only for themselves.");
@@ -126,7 +127,7 @@ async function prepareCreate(c: any, s: Session, b: z.infer<typeof createSchema>
   return assignee;
 }
 
-async function insertTask(c: any, s: Session, title: string, assignee: string, b: any) {
+export async function insertTask(c: any, s: Session, title: string, assignee: string, b: any) {
   const row = (await c.query(
     `insert into tasks (brand_id, assignee_id, creator_id, title, note, type, due_date, recurrence, recurrence_until, kpi_id, operational_date)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`,
@@ -187,7 +188,8 @@ export function registerTasks(r: Router) {
     const assignments = await query(`select case when row_number() over (order by a.effective_from) = 1 then null else a.effective_from::text end effective_from,
                                             u.id assignee_id, u.display_name assignee_name, u.status = 'archived' archived
                                        from task_assignments a join users u on u.id = a.assignee_id where a.task_id = $1 order by a.effective_from`, [params.id]);
-    return { task, history: hist, assignments };
+    // Tasks created from a marketing plan link back to it (the dashboard enforces who may see the plan).
+    return { task, history: hist, assignments, plan_url: await planLinkFor(params.id) };
   });
 
   r.post("/tasks", EDITORS, async ({ req, session: s }) => {
