@@ -24,7 +24,7 @@ A scoped, server-to-server operation that lets the Marketing Dashboard create th
 ```json
 POST /api/planning/v1/tasks
 { "idempotency_key": "mkp:<assignment uuid>", "plan_id": "<plan uuid>", "brand_id": "<tracker brand>", "assignee_id": "<tracker person>",
-  "title": "…", "brief": "…", "due_date": "2027-02-12", "sent_at": "2026-11-16T08:00:00.000Z" }
+  "title": "…", "brief": "…", "due_date": "2027-02-12", "sent_at": "2026-11-16T08:00:00.000Z", "origin": "plan" }
 ```
 
 - `idempotency_key` is the dashboard's stable assignment id. The first call creates the task (`201`, `created: true`). Any later call with the same key — a double click, a retry after a timeout, a retry of a partial failure — returns the **original task as it is now** (`200`, `created: false`), including edits made in the tracker, and creates nothing. Concurrent calls with one key are serialized; only one task can exist per key. A key already used by another plan answers `409 key_in_use`; a key whose task is outside the credential's businesses answers `409 key_unavailable`.
@@ -32,6 +32,7 @@ POST /api/planning/v1/tasks
 - `sent_at` is when the caller sent the request; `supersedes_sent_at` (optional) is the `sent_at` of the caller's latest earlier attempt whose answer it never received. **Fence:** when a request is refused with `task_exists: false`, Task Tracker stores, under the key's lock and in the same transaction, `fenced_through` = the greater of the two, and returns it. Every later request for that key with `sent_at` at or before `fenced_through` is refused with `409 stale_request` and creates nothing, whichever server instance handles it and whatever its clock says. A caller may treat earlier unanswered attempts as unable to create a task once `fenced_through` is at or after their `sent_at`, and must send later attempts with a `sent_at` after `fenced_through`.
 - As an extra guard, a request more than 60 seconds old (or 60 seconds ahead) by the handling instance's clock is also refused with `409 stale_request`; that check runs under the key's lock too.
 - The brief becomes the task's note (max 2,000 characters). The task is a one-time ad hoc task created by the acting administrator; its history shows `created` and `linked_to_plan`.
+- `origin` (optional): `"plan"` (default) or `"review"`. A `review` task comes from the dashboard's private Slack Review queue: `plan_id` is then the suggestion's id, the task's history shows only `created` (no `linked_to_plan`), and task responses carry no plan link. Nothing else differs: same key, fence, validation and idempotency rules. Requires migration `004_task_origin.sql`.
 - Errors: `400` invalid fields · `401` wrong key · `409 key_in_use` · `422 brand_not_allowed` · `422 unknown_person | archived_person | management_role | assignee_lacks_brand_access` · `503 planning_disabled`.
 
 Task responses: `{ idempotency_key, plan_id, task_id, title, due_date, status: open|done|deleted, completed_on, recurring, brand: {id, name}, assignee: {id, name}, version, updated_at, open_url }`.
