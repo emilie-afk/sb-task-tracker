@@ -1,5 +1,7 @@
 # Task Tracker
 
+**Designed and built by Emilie Ngo for Succulents Box.**
+
 A private team workspace for tasks, recurring work, KPI scorecards and daily/period summaries, with approved Google sign-in and three roles (Administrator, Staff, Management).
 
 This repository is **public**. It contains code, generic documentation and fictional test data only. People, brands, tasks, KPIs, imports and every credential live privately in the server database and server settings, and are reachable only through authenticated, authorized APIs.
