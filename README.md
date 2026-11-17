@@ -1,7 +1,5 @@
 # Task Tracker
 
-**Designed and built by Emilie Ngo for Succulents Box.**
-
 A private team workspace for tasks, recurring work, KPI scorecards and daily/period summaries, with approved Google sign-in and three roles (Administrator, Staff, Management).
 
 This repository is **public**. It contains code, generic documentation and fictional test data only. People, brands, tasks, KPIs, imports and every credential live privately in the server database and server settings, and are reachable only through authenticated, authorized APIs.
@@ -46,3 +44,5 @@ DATABASE_URL=... APP_BASE_URL=http://localhost:8888 APP_SECRET=<32+ chars> LOCAL
 Browser regression tests run inside `npm test` when a Playwright Chromium is installed (`npx playwright install chromium`, or set `PLAYWRIGHT_BROWSERS_PATH`); without one they are reported as skipped.
 
 Before every push: `npm test`, `npm run build`, `npm run check:public` with `PRIVATE_TERMS_FILE` pointing at a local (git-ignored) list of private names and terms.
+
+Designed and built by Emilie Ngo for Succulents Box.
