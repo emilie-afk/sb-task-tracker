@@ -97,6 +97,9 @@ const createSchema = z.object({
   // The sent_at of the caller's latest earlier attempt whose answer it never received. If this request confirms that no
   // task exists, the fence covers that attempt too, even if it was sent from a machine whose clock ran ahead.
   supersedes_sent_at: z.string().max(40).refine((v) => !Number.isNaN(Date.parse(v)), "must be a time").nullable().optional(),
+  // Where the task comes from on the dashboard: a marketing plan (linked back to it) or Emilie's private review queue
+  // (no link back: the queue and its sources are private to the dashboard). plan_id is then the suggestion's id.
+  origin: z.enum(["plan", "review"]).optional(),
 }).strict();
 export const CREATE_MAX_AGE_MS = 60_000;
 
@@ -171,8 +174,10 @@ export async function handlePlanning(req: Request, path: string): Promise<Respon
         const fields = { brand_id: b.brand_id, assignee_id: b.assignee_id, type: "adhoc" as const, due_date: b.due_date, recurrence: null, recurrence_until: null, note: b.brief ?? null, kpi_id: null, title: b.title };
         const assignee = await prepareCreate(c, actor, fields);
         const id = await insertTask(c, actor, b.title, assignee, fields);
-        await c.query("insert into task_plan_links (task_id, idempotency_key, plan_id) values ($1,$2,$3)", [id, b.idempotency_key, b.plan_id]);
-        await history(c, id, actor.userId, "linked_to_plan", { source: "marketing_planning", plan_id: b.plan_id });
+        const origin = b.origin ?? "plan";
+        await c.query("insert into task_plan_links (task_id, idempotency_key, plan_id, origin) values ($1,$2,$3,$4)", [id, b.idempotency_key, b.plan_id, origin]);
+        // Review-queue tasks record no link to their private source.
+        if (origin === "plan") await history(c, id, actor.userId, "linked_to_plan", { source: "marketing_planning", plan_id: b.plan_id });
         return { created: true as const };
       } catch (e) {
         if (!(e instanceof HttpError) || e.status < 400 || e.status >= 500) throw e;
@@ -219,6 +224,6 @@ export async function handlePlanning(req: Request, path: string): Promise<Respon
 
 /** For the task detail screen: the plan this task came from, as a link into the dashboard (which enforces access). */
 export async function planLinkFor(taskId: string) {
-  const r = await one<{ plan_id: string }>("select plan_id from task_plan_links where task_id = $1", [taskId]);
-  return r ? planUrl(r.plan_id) : null;
+  const r = await one<{ plan_id: string; origin: string }>("select plan_id, origin from task_plan_links where task_id = $1", [taskId]);
+  return r && r.origin === "plan" ? planUrl(r.plan_id) : null;
 }

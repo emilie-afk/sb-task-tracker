@@ -224,6 +224,22 @@ describe("the fence holds across server instances with different clocks", () => 
   });
 });
 
+describe("review-queue origin", () => {
+  it("a task from the private review queue has no link back and no plan history; replays still return it", async () => {
+    const key = "mkp:review-origin-0001", sug = "22222222-3333-4444-8555-666666666666";
+    const r = await create({ idempotency_key: key, plan_id: sug, origin: "review" });
+    expect(r.status).toBe(201);
+    const d = await call(staff, "GET", `/tasks/${r.body.task.task_id}`);
+    expect(d.body.plan_url).toBeNull();
+    expect(d.body.history.map((h: any) => h.action)).not.toContain("linked_to_plan");
+    expect(JSON.stringify(d.body)).not.toContain(sug);
+    const again = await create({ idempotency_key: key, plan_id: sug, origin: "review", sent_at: new Date(Date.now() + 5).toISOString() });
+    expect(again.status).toBe(200);
+    expect(again.body.task.task_id).toBe(r.body.task.task_id);
+    expect((await create({ idempotency_key: "mkp:review-origin-0002", origin: "elsewhere" })).status).toBe(400);
+  });
+});
+
 describe("reading and due dates", () => {
   it("reads tasks by assignment id, including completion done in the tracker", async () => {
     const t = (await create()).body.task;
