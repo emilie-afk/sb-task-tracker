@@ -263,6 +263,28 @@ describe("reading and due dates", () => {
   });
 });
 
+describe("completion from the dashboard (Resolve)", () => {
+  it("completes a one-time task once, keeps the first completion, and refuses repeating or unknown tasks", async () => {
+    const key = "mkp:resolve-task-000001";
+    const made = await plan("POST", "/tasks", { idempotency_key: key, plan_id: PLAN, brand_id: SB, assignee_id: thao, title: "Fictional resolve task", due_date: "2027-02-01", sent_at: new Date().toISOString(), origin: "review" });
+    expect(made.status).toBe(201);
+    const r1 = await plan("POST", `/tasks/${key}/complete`, {});
+    expect(r1.status).toBe(200);
+    expect(r1.body.task).toMatchObject({ status: "done" });
+    const first = (await q("select completed_on::text d, completed_by, version from tasks where id = $1", [made.body.task.task_id]))[0];
+    const r2 = await plan("POST", `/tasks/${key}/complete`, {});
+    expect(r2.status).toBe(200);
+    expect((await q("select completed_on::text d, completed_by, version from tasks where id = $1", [made.body.task.task_id]))[0]).toEqual(first);
+    expect((await q("select count(*)::int n from task_history where task_id = $1 and action = 'completed'", [made.body.task.task_id]))[0].n).toBe(1);
+    expect((await plan("POST", "/tasks/mkp:missing-task-001/complete", {})).status).toBe(404);
+    await q("update tasks set completed_on = null, completed_at = null, completed_by = null, recurrence = 'weekly' where id = $1", [made.body.task.task_id]);
+    const rec = await plan("POST", `/tasks/${key}/complete`, {});
+    expect(rec.status).toBe(409);
+    expect(rec.body.error.code).toBe("recurring");
+    await q("update tasks set recurrence = null where id = $1", [made.body.task.task_id]);
+  });
+});
+
 describe("business scope applies to every path, not only creation", () => {
   it("a credential restricted to Succulents Box cannot read, replay or change a P2S task created under an earlier credential", async () => {
     const wide = (await call(admin, "POST", "/integrations/planning/credential", { allowed_business_ids: ["sb", "p2s"] })).body.secret;
