@@ -6,7 +6,7 @@ A scoped, server-to-server operation that lets the Marketing Dashboard create th
 
 - Header `x-tracker-planning-key: <secret>`. Created by an administrator under **Integrations → Marketing planning** (shown once, stored only as a SHA-256 hash, compared in constant time). Creating a new one revokes the previous one; **Revoke** stops task creation at once. It is separate from the reporting credential, and neither reaches the other's endpoints. Human sessions are never accepted.
 - The credential **acts as the administrator who created it**. Tasks are created through the task editor's own validation (`prepareCreate`) with that administrator's permissions, so the same rules apply: open brand, assignable person (active administrator or staff with access to the brand; never Management or archived people), valid dates. If that person is archived or stops being an administrator, the API answers `503 planning_disabled`.
-- Business scope applies to **every** endpoint, not only creation: a lookup, a replayed key and a due-date change reach a task only while its brand is mapped to a business the current credential allows. Otherwise the lookup leaves it out, a replay answers `409 key_unavailable` (with no task details) and a due-date change answers `404`. A replaced or narrower credential therefore cannot reach tasks of other businesses created under an earlier one.
+- Business scope applies to **every** endpoint, not only creation: a lookup, a replayed key, a due-date change and a completion reach a task only while its brand is mapped to a business the current credential allows. Otherwise the lookup leaves it out, a replay answers `409 key_unavailable` (with no task details) and a due-date change answers `404`. A replaced or narrower credential therefore cannot reach tasks of other businesses created under an earlier one.
 - Brands: only **active** brands with **reporting enabled** and mapped to a dashboard business the credential allows (Succulents Box only by default). This keeps every created task visible to the dashboard's reporting sync.
 - Without an active credential: `503 planning_disabled`. Rate limited per client address; failed keys are limited separately.
 
@@ -18,6 +18,7 @@ A scoped, server-to-server operation that lets the Marketing Dashboard create th
 | `POST /api/planning/v1/tasks` | Create one assigned task (idempotent, below). |
 | `GET /api/planning/v1/tasks?keys=<k1>,<k2>` | Current state of up to 100 tasks created from plans, by assignment id. |
 | `PATCH /api/planning/v1/tasks/<key>/due-date` | `{ due_date, expected_version }`: change the due date only if the task's version still matches; `409 conflict` (with the current task in `error.details.task`) otherwise. |
+| `POST /api/planning/v1/tasks/<key>/complete` | `{}`: marks a one-time task done with the task editor's rules, as the acting administrator (date: today, Vietnam time). Repeating it keeps the first completion. A repeating task answers `409 recurring` (complete its occurrences in Task Tracker); an unknown or deleted task `404`. Used by the dashboard's Resolve. |
 
 ### Creating a task
 

@@ -4,6 +4,7 @@
 //   POST  /api/planning/v1/tasks                        create one assigned task (idempotent)
 //   GET   /api/planning/v1/tasks?keys=<k1>,<k2>          current state of tasks created from plans
 //   PATCH /api/planning/v1/tasks/<key>/due-date          change one task's due date (optimistic version)
+//   POST  /api/planning/v1/tasks/<key>/complete          mark one task done (the task editor's completion rules)
 //   Header: x-tracker-planning-key: <dedicated planning secret>
 //
 // - Its own random credential (stored hashed, compared in constant time), separate from the reporting credential.
@@ -15,8 +16,10 @@
 //   enabled (so the dashboard sees the task's status through the normal reporting sync).
 // - Idempotency: the caller's stable assignment id is the key. Repeating a creation (double click, timeout,
 //   retry) returns the original task as it is now, with any edits made here, and never creates a second task.
-// - The tracker owns the task. The only later change offered is the due date, applied only when the task's version
-//   still matches the version the caller last read; otherwise 409 with the current state.
+// - The tracker owns the task. The later changes offered are the due date (applied only when the task's version still
+//   matches the version the caller last read; otherwise 409 with the current state) and completion ("Resolve" on the
+//   dashboard), applied as the acting administrator with the editor's rules: one-time tasks only (a repeating task
+//   is completed occurrence by occurrence in Task Tracker), never reopened, and repeating it changes nothing.
 import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { one, query, tx } from "./db";
@@ -26,6 +29,7 @@ import { parse, uuid, isoDate, line, text, version } from "./validate";
 import { assignability, history } from "./tasks";
 import { prepareCreate, insertTask } from "./routes/tasks";
 import { appOrigin, dashboardOrigin } from "./config";
+import { todayVN } from "../shared/dates";
 import type { Session } from "./auth";
 
 export const PLANNING_HEADER = "x-tracker-planning-key";
@@ -218,7 +222,26 @@ export async function handlePlanning(req: Request, path: string): Promise<Respon
     return json({ task: await taskState(m[1], cred.allowed_business_ids) });
   }
 
-  const known = path === "/planning/v1/directory" || path === "/planning/v1/tasks" || !!m;
+  const done = /^\/planning\/v1\/tasks\/([A-Za-z0-9_.:-]{8,120})\/complete$/.exec(path);
+  if (done && req.method === "POST") {
+    parse(z.object({}).strict(), await readJson(req).catch(() => ({})));
+    await tx(async (c) => {
+      const t = (await c.query(
+        `select t.id, t.recurrence, t.deleted_at, t.completed_on from task_plan_links l join tasks t on t.id = l.task_id
+           join brands b on b.id = t.brand_id where l.idempotency_key = $1 and ${IN_SCOPE} for update of t`, [done[1], cred.allowed_business_ids])).rows[0];
+      if (!t || t.deleted_at) throw new HttpError(404, "not_found", "Task not found.");
+      if (t.recurrence) throw new HttpError(409, "recurring", "The task now repeats; complete its occurrences in Task Tracker.");
+      if (t.completed_on) return;   // already done: the first completion (date and person) is kept
+      await c.query("update tasks set completed_on = $2, completed_at = now(), completed_by = $3, updated_at = now(), version = version + 1 where id = $1", [t.id, todayVN(), actor.userId]);
+      await history(c, t.id, actor.userId, "completed", { source: "marketing_planning" });
+    }).catch(async (e) => {
+      if (e instanceof HttpError && e.status === 409) throw new HttpError(409, e.code, e.message, { task: await taskState(done[1], cred.allowed_business_ids) });
+      throw e;
+    });
+    return json({ task: await taskState(done[1], cred.allowed_business_ids) });
+  }
+
+  const known = path === "/planning/v1/directory" || path === "/planning/v1/tasks" || !!m || !!done;
   throw known ? new HttpError(405, "method_not_allowed", "Method not allowed.") : new HttpError(404, "not_found", "No such endpoint.");
 }
 
