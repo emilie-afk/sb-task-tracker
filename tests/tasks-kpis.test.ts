@@ -96,10 +96,13 @@ describe("recurring tasks", () => {
     expect(r.status).toBe(200);
     expect(r.body.split_from).toBe(t.id);
     expect(r.body.task).toMatchObject({ recurrence: "weekly", due_date: "2026-11-16" });
+    // The old schedule runs until the day before the new one takes effect (no gap, no overlap).
     const [old] = await q("select recurrence_until::text u from tasks where id = $1", [t.id]);
-    expect(old.u).toBe("2026-11-11");
+    expect(old.u).toBe("2026-11-15");
     expect((await q("select count(*)::int n from task_occurrences where task_id = $1", [t.id]))[0].n).toBe(2);
-    expect((await call(staff, "PATCH", `/tasks/${r.body.task.id}`, { version: r.body.task.version, recurrence: "daily", due_date: "2026-11-01" })).status).toBe(200);
+    // The continuation cannot start back over the series it continues (that would produce the same dates twice).
+    expect((await call(staff, "PATCH", `/tasks/${r.body.task.id}`, { version: r.body.task.version, recurrence: "daily", due_date: "2026-11-01" })).status).toBe(409);
+    expect((await call(staff, "PATCH", `/tasks/${r.body.task.id}`, { version: r.body.task.version, recurrence: "daily", due_date: "2026-11-16" })).status).toBe(200);
   });
   it("cancelling a series sets its end date; it cannot end before a completed occurrence", async () => {
     at("2026-11-20T03:00:00Z");

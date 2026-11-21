@@ -68,7 +68,7 @@ describe("reported content", () => {
     await task(staff, { title: "SB one-time", brand_id: SB, note: "private note", due_date: "2026-11-12" });
     await task(staff, { title: "P2S task", brand_id: P2S });
     await task(staff, { title: "New brand task", brand_id: NEWB });
-    await task(admin, { title: "Unassigned task", brand_id: null, assignee_id: admin.id });
+    await task(admin, { title: "Unassigned task", brand_id: null, assignee_id: staff.id });
     const { first, items } = await readAll(50);
     expect(first).toMatchObject({ schema_version: 2, source_instance: "tracker-test", scope: { business_ids: ["sb"] } });
     expect(items.map((i: any) => i.title)).toEqual(["SB one-time"]);
@@ -114,8 +114,8 @@ describe("reported content", () => {
   });
   it("sends explicit removal markers for deleted, unassigned and out-of-scope tasks that were reported before", async () => {
     const del = await task(staff, { title: "To delete", brand_id: SB });
-    const clear = await task(admin, { title: "To clear", brand_id: SB, assignee_id: admin.id });
-    const move = await task(admin, { title: "To move", brand_id: SB, assignee_id: admin.id });
+    const clear = await task(admin, { title: "To clear", brand_id: SB, assignee_id: staff.id });
+    const move = await task(admin, { title: "To move", brand_id: SB, assignee_id: staff.id });
     await readAll(50);                                          // reported once
     await call(staff, "DELETE", `/tasks/${del.id}?version=${del.version}`);
     await call(admin, "PATCH", `/tasks/${clear.id}`, { version: clear.version, brand_id: null });

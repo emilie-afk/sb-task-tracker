@@ -12,6 +12,7 @@ import { hit, accountKey, RATE } from "./rateLimit";
 import { handleReporting } from "./reporting";
 import { handlePlanning } from "./planning";
 import { registerTasks } from "./routes/tasks";
+import { registerWeek } from "./routes/week";
 import { registerPeople } from "./routes/people";
 import { registerBrands } from "./routes/brands";
 import { registerKpis } from "./routes/kpis";
@@ -25,6 +26,7 @@ const CSRF_HEADER = "x-csrf-token";
 /** Every route of the API (exported so tests can check each mutation's protection). */
 export function buildRouter() {
   const r = new Router();
+  registerWeek(r);                // before /tasks/:id
   registerTasks(r);
   registerPeople(r);
   registerBrands(r);

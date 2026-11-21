@@ -46,6 +46,8 @@ GET /api/reporting/v1/tasks?limit=200&snapshot=<snapshot.id>&cursor=<next_cursor
 - One-time tasks: `record_id = task:<task id>`, `kind = task`.
 - Recurring tasks: one record per **occurrence** in the snapshot window (60 days back to 60 days ahead), `record_id = occ:<task id>:<YYYY-MM-DD>`, `kind = occurrence`, `due_date = occurrence_date`, `status` for that occurrence only. A series is never reported as completed work.
 - `assignee` is the person who **owned the task on that record's date** (effective-dated ownership): an occurrence or a completed one-time task stays credited to its owner at the time, even after the task is reassigned or that person is archived. Open one-time tasks show the current assignee.
+- Closed work (an unfinished one-time task or occurrence whose owner is archived) is not reported; the dashboard removes its earlier copy (`not_in_snapshot`). Finished work of archived people is still reported.
+- Weekly series may repeat on several weekdays; each occurrence is still one record.
 - Records are ordered by `record_id`. Included fields are only those needed for task reporting. Notes, emails, account lists, KPI details and administrative fields are never sent.
 - `open_url` opens the task in the tracker, which requires the viewer's own tracker sign-in.
 
@@ -61,7 +63,12 @@ GET /api/reporting/v1/tasks?limit=200&snapshot=<snapshot.id>&cursor=<next_cursor
 
 - remove every stored copy whose `task_id` is not listed (deleted, cleared to Unassigned brand, moved out of reported brands or businesses), including occurrences far outside the window;
 - remove stored occurrences of a listed task dated before `first_due` or after `until`;
+- remove stored **open** occurrences dated inside a listed task's `closed_periods` (`[{ "from": date, "to": date | null }]`, sent only for recurring tasks that have them): the periods in which an archived person owned the series, whose unfinished work is closed. Done copies there keep their credit. `to: null` means "from `from` on";
 - keep other occurrences outside the window as history.
+
+When an owner is restored, their periods drop out of `closed_periods`; a reader that removed copies as closed restores those outside the window (inside the window the snapshot decides).
+
+`closed_periods` is an additive field. Readers that validate scope entries strictly must accept it before the tracker that sends it is deployed (the Marketing Dashboard does from the release that removes closed copies).
 
 At most 20,000 tasks are listed; above that the endpoint answers `503 reporting_too_large`.
 

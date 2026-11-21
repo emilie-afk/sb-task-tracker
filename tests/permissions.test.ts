@@ -18,8 +18,9 @@ beforeAll(async () => {
   tA = await task(staffA, { title: "Sam alpha task", brand_id: A });
   tB = await task(admin, { title: "Kim beta task", brand_id: B, assignee_id: staffAB.id, note: "beta note" });
   tOther = await task(admin, { title: "Kim alpha task", brand_id: A, assignee_id: staffAB.id });
-  tUnassigned = await task(admin, { title: "No brand task", brand_id: null, assignee_id: admin.id });
-  await task(admin, { title: "Gamma only", brand_id: C, assignee_id: admin.id });
+  const gus = await person("gus@example.test", "Gus Staff", "staff", "active", [C]);
+  tUnassigned = await task(admin, { title: "No brand task", brand_id: null, assignee_id: gus });
+  await task(admin, { title: "Gamma only", brand_id: C, assignee_id: gus });
 });
 afterAll(closePool);
 
@@ -66,7 +67,8 @@ describe("reading", () => {
     expect(s.body.pending).toBe(1);
     expect((await call(staffA, "GET", `/summaries?person=${staffAB.id}`)).status).toBe(403);
     const m = await call(mgmt, "GET", "/summaries?period=today");
-    expect(m.body.by_person.map((p: any) => p.name)).toEqual(["Ada Admin", "Kim Staff", "Sam Staff"]);
+    // Team workload lists staff only: administrators manage the work and Management only reads it.
+    expect(m.body.by_person.map((p: any) => p.name)).toEqual(["Gus Staff", "Kim Staff", "Sam Staff"]);
   });
   it("KPI scorecards: staff own only; Management and administrators all", async () => {
     await call(admin, "POST", "/kpis", { owner_id: staffAB.id, brand_id: A, metric: "Posts", target: "3" });

@@ -5,7 +5,7 @@ import { freshDb, q, call, person, brand, login, task, app, ORIGIN, closePool, t
 import { _setClockForTests } from "../shared/dates";
 import { getPool } from "../server/db";
 
-let admin: Who, a: Who, b: Who, SB: string, secret = "";
+let admin: Who, a: Who, b: Who, dee: string, SB: string, secret = "";
 const at = (iso: string) => _setClockForTests(() => Date.parse(iso));
 const readAll = async () => {
   const first = await (await app(new Request(`${ORIGIN}/api/reporting/v1/tasks?limit=500`, { headers: { "x-tracker-reporting-key": secret } }))).json();
@@ -19,6 +19,7 @@ beforeAll(async () => {
   admin = await login(await person("admin@example.test", "Ada Admin", "administrator"));
   a = await login(await person("ann@example.test", "Ann Original", "staff", "active", [SB]));
   b = await login(await person("ben@example.test", "Ben Replacement", "staff", "active", [SB]));
+  dee = await person("dee@example.test", "Dee Staff", "staff", "active", [SB]);
   secret = (await call(admin, "POST", "/integrations/reporting/credential", {})).body.secret;
 });
 afterAll(async () => { _setClockForTests(null); await closePool(); });
@@ -91,19 +92,19 @@ describe("1. reassignment keeps historical ownership of recurring work", () => {
     const t = await task(admin, { title: "Editor reassign", brand_id: SB, assignee_id: b.id, recurrence: "weekdays", due_date: "2026-11-02" });
     await call(b, "POST", `/tasks/${t.id}/completion`, { done: true, occurrence_date: "2026-11-06" });
     const cur = (await call(admin, "GET", `/tasks/${t.id}`)).body.task;
-    expect((await call(admin, "PATCH", `/tasks/${t.id}`, { version: cur.version, assignee_id: admin.id })).status).toBe(200);
+    expect((await call(admin, "PATCH", `/tasks/${t.id}`, { version: cur.version, assignee_id: dee })).status).toBe(200);
     const occ = (await call(admin, "GET", `/tasks/${t.id}/occurrences?from=2026-11-06&to=2026-11-10`)).body.items;
-    expect(occ.map((o: any) => [o.date, o.owner.id])).toEqual([["2026-11-06", b.id], ["2026-11-09", b.id], ["2026-11-10", admin.id]]);
+    expect(occ.map((o: any) => [o.date, o.owner.id])).toEqual([["2026-11-06", b.id], ["2026-11-09", b.id], ["2026-11-10", dee]]);
   });
 });
 
 describe("3. authoritative reporting scope survives long gaps (tracker side)", () => {
   it("lists every in-scope task with its occurrence span, and omits removed tasks even after removal markers expire", async () => {
     at("2026-11-10T03:00:00Z");
-    const old = await task(admin, { title: "Ended long ago", brand_id: SB, assignee_id: admin.id, recurrence: "weekly", due_date: "2026-01-05" });
+    const old = await task(admin, { title: "Ended long ago", brand_id: SB, assignee_id: dee, recurrence: "weekly", due_date: "2026-01-05" });
     const oc = (await call(admin, "GET", `/tasks/${old.id}`)).body.task;
     await call(admin, "PATCH", `/tasks/${old.id}`, { version: oc.version, recurrence_until: "2026-03-30" });
-    const gone = await task(admin, { title: "Deleted long ago", brand_id: SB, assignee_id: admin.id });
+    const gone = await task(admin, { title: "Deleted long ago", brand_id: SB, assignee_id: dee });
     await readAll();
     await call(admin, "DELETE", `/tasks/${gone.id}?version=${gone.version}`);
     // Simulate the change happening more than 180 days before the next read.
@@ -117,7 +118,7 @@ describe("3. authoritative reporting scope survives long gaps (tracker side)", (
     expect(snap.items.some((i: any) => i.task_id === old.id)).toBe(false);          // outside the window, yet in scope
     // Out-of-scope brands are never listed.
     const other = await brand("Beta Prints");
-    const t = await task(admin, { title: "Unreported brand", brand_id: other, assignee_id: admin.id });
+    const t = await task(admin, { title: "Unreported brand", brand_id: other, assignee_id: await person("ola@example.test", "Ola Staff", "staff", "active", [other]) });
     expect((await readAll()).in_scope_tasks.map((x: any) => x.task_id)).not.toContain(t.id);
   });
 });
@@ -125,7 +126,7 @@ describe("3. authoritative reporting scope survives long gaps (tracker side)", (
 describe("5. recurring list and detail status agree", () => {
   it("an ended monthly series completed more than seven days ago shows done in both list and detail", async () => {
     at("2026-11-10T03:00:00Z");
-    const t = await task(admin, { title: "Monthly close", brand_id: SB, assignee_id: admin.id, recurrence: "monthly", due_date: "2026-08-15", recurrence_until: "2026-10-15" });
+    const t = await task(admin, { title: "Monthly close", brand_id: SB, assignee_id: dee, recurrence: "monthly", due_date: "2026-08-15", recurrence_until: "2026-10-15" });
     expect((await call(admin, "POST", `/tasks/${t.id}/completion`, { done: true, occurrence_date: "2026-10-15" })).status).toBe(200);
     const list = (await call(admin, "GET", "/tasks?q=Monthly%20close")).body.items[0];
     const detail = (await call(admin, "GET", `/tasks/${t.id}`)).body.task;
@@ -133,7 +134,7 @@ describe("5. recurring list and detail status agree", () => {
   });
   it("an older unfinished occurrence stays open and overdue in both", async () => {
     at("2026-11-10T03:00:00Z");
-    const t = await task(admin, { title: "Old weekly", brand_id: SB, assignee_id: admin.id, recurrence: "weekly", due_date: "2026-09-01", recurrence_until: "2026-10-20" });
+    const t = await task(admin, { title: "Old weekly", brand_id: SB, assignee_id: dee, recurrence: "weekly", due_date: "2026-09-01", recurrence_until: "2026-10-20" });
     const list = (await call(admin, "GET", "/tasks?q=Old%20weekly")).body.items[0];
     const detail = (await call(admin, "GET", `/tasks/${t.id}`)).body.task;
     for (const x of [list, detail]) expect(x).toMatchObject({ status: "open", overdue: true, occurrence: { date: "2026-10-20", done: false, overdue: true } });

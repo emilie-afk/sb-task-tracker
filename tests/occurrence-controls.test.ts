@@ -45,13 +45,17 @@ describe("API: occurrence owner and completion permission", () => {
     expect((await call(ben, "GET", `/tasks/${series.id}`)).body.task.occurrence).toEqual(after.occurrence);
     await call(ben, "POST", `/tasks/${series.id}/completion`, { done: false, occurrence_date: "2026-11-10" });
   });
-  it("the administrator sees the previous owner's backlog, labelled with its owner, and may complete it", async () => {
+  it("the archived previous owner's unfinished occurrences are closed: cards show the current owner's work", async () => {
     const c = await card(admin);
-    expect(c.occurrence).toMatchObject({ date: "2026-11-03", overdue: true, can_complete: true, owner: { id: ann.id, name: "Ann Original", archived: true } });
+    expect(c.occurrence).toMatchObject({ date: "2026-11-10", overdue: false, can_complete: true, owner: { id: ben.id, archived: false } });
+    // Closed occurrences stay in the detail list, labelled; an administrator can still record one as done for the
+    // previous owner (a correction), which credits that owner.
+    const items = (await call(admin, "GET", `/tasks/${series.id}/occurrences?from=2026-11-04&to=2026-11-05`)).body.items;
+    expect(items.map((o: any) => [o.date, o.closed, o.done, o.overdue])).toEqual([["2026-11-04", true, false, false], ["2026-11-05", false, true, false]]);
   });
   it("a colleague reading the card gets no completion control", async () => {
     const c = await card(cara);
-    expect(c).toMatchObject({ can_edit: false, can_complete: false, occurrence: { can_complete: false, owner: { id: ann.id } } });
+    expect(c).toMatchObject({ can_edit: false, can_complete: false, occurrence: { can_complete: false, owner: { id: ben.id } } });
   });
   it("every card that offers completion can actually complete (no can_complete followed by 403)", async () => {
     for (const who of [admin, ben, cara]) {
@@ -137,7 +141,7 @@ describe("API: one completion rule (ownership and the 31-day limit) for cards, o
 let chromium: any = null;
 try { ({ chromium } = await import("playwright")); } catch { chromium = null; }
 
-describe("browser: the replacement completes their own occurrence; others' are disabled", () => {
+describe("browser: the weekly timeline; the replacement completes their own occurrence; others' are disabled", () => {
   it("works in the real interface under the production CSP", async (ctx) => {
     let browser: any;
     try { browser = await chromium?.launch(); } catch { browser = null; }
@@ -164,35 +168,44 @@ describe("browser: the replacement completes their own occurrence; others' are d
       const completions: string[] = [];
       page.on("request", (r: any) => { if (r.url().includes("/completion")) completions.push(r.postData() ?? ""); });
       await page.goto(base);
-      await page.waitForSelector(".toolbar");
-      // Staff lists start filtered to their own tasks; a colleague switches to Everyone to see the card.
-      if (everyone) await page.locator(".fchip", { hasText: "Everyone" }).click();
-      await page.waitForSelector(".tc");
-      const tc = page.locator(".tc", { hasText: "Daily inbox" });
-      return { c, page, errors, completions, tc };
+      await page.waitForSelector(".tl-week");
+      // Staff timelines start filtered to their own work; a colleague switches to Everyone to see the card.
+      if (everyone) { await page.locator(".fchip", { hasText: "Everyone" }).click(); await page.waitForTimeout(300); }
+      const unit = (date: string) => page.locator(`.tc[data-key="occ:${series.id}:${date}"]`);
+      return { c, page, errors, completions, unit };
     };
     try {
-      // Replacement: control enabled, completes today's own occurrence.
+      // Replacement: today's own occurrence (Tue 10 Nov) is enabled and completes; it moves to "Completed this week".
       const b = await asUser(ben.id);
-      const chk = b.tc.locator(".chk");
+      expect(await b.page.locator(".week-pick").inputValue()).toBe("2026-11-09");
+      expect(await b.page.locator('.tl-day[data-date="2026-11-10"] .today-tag').count()).toBe(1);
+      const chk = b.unit("2026-11-10").locator(".chk");
       expect(await chk.getAttribute("aria-disabled")).toBeNull();
       await chk.click();
-      await b.page.waitForFunction(() => [...document.querySelectorAll(".tc")].some((e) => e.textContent?.includes("Daily inbox") && e.querySelector(".chk.on")));
-      expect(await b.page.locator(".tc", { hasText: "Daily inbox" }).textContent()).toContain("Done for Nov 10");
+      await b.page.waitForSelector(`.tl-done .tc[data-key="occ:${series.id}:2026-11-10"] .chk.on`, { state: "attached" });
+      expect(await b.page.locator(".tl-done .sh").textContent()).toContain("Completed this week");
+      expect(await b.unit("2026-11-10").textContent()).toContain("Done for Nov 10");
       expect(b.completions.length).toBe(1);
-      // An occurrence more than 31 days ahead stays visible with a disabled, explained control.
-      const farCard = b.page.locator(".tc", { hasText: "Monthly edge far" });
+      // Ann's unfinished occurrences are closed: not in the overdue section or the days.
+      expect(await b.page.locator(".tl-overdue").count()).toBe(0);
+      // An occurrence more than 31 days ahead: navigate to its week; the control is disabled and explained.
+      await b.page.locator(".week-pick").selectOption("2026-12-07");
+      const [{ id: farId }] = await q("select id from tasks where title = 'Monthly edge far'");
+      const farCard = b.page.locator(`.tc[data-key="occ:${farId}:2026-12-12"]`);
+      await farCard.waitFor();
       expect(await farCard.locator(".chk").getAttribute("aria-disabled")).toBe("true");
       expect(await farCard.textContent()).toContain("Can be completed from Nov 11");
       await farCard.locator(".chk").click({ force: true });
       await b.page.waitForTimeout(200);
       expect(b.completions.length).toBe(1);
-      // Detail: older occurrences are labelled with Ann (archived) and have no control; Ben's have one.
-      await b.page.locator(".tc .tt a", { hasText: "Daily inbox" }).click();
+      await b.page.locator(".week-today").click();
+      await b.unit("2026-11-11").waitFor();
+      // Detail: Ann's older occurrences are labelled closed and have no control; Ben's have one.
+      await b.page.locator(`.tc[data-key="occ:${series.id}:2026-11-11"] .tt a`).click();
       await b.page.waitForSelector(".occ-tbl");
       const row = (d: string) => b.page.locator(`.occ-tbl tr[data-date="${d}"]`);
       expect(await row("2026-11-09").textContent()).toContain("Ann Original");
-      expect(await row("2026-11-09").textContent()).toContain("Archived");
+      expect(await row("2026-11-09").textContent()).toContain("Closed");
       expect(await row("2026-11-09").locator(".occ-toggle").count()).toBe(0);
       expect(await row("2026-11-11").locator(".occ-toggle").count()).toBe(1);
       await row("2026-11-11").locator(".occ-toggle").click();
@@ -201,17 +214,20 @@ describe("browser: the replacement completes their own occurrence; others' are d
       await b.c.close();
       // Colleague: control disabled, clicking sends nothing.
       const c = await asUser(cara.id, true);
-      expect(await c.tc.locator(".chk").getAttribute("aria-disabled")).toBe("true");
-      expect(await c.tc.textContent()).toContain("Ann Original's occurrence (archived)");
-      await c.tc.locator(".chk").click({ force: true });         // a forced click still sends nothing
+      await c.unit("2026-11-12").waitFor();
+      expect(await c.unit("2026-11-12").locator(".chk").getAttribute("aria-disabled")).toBe("true");
+      await c.unit("2026-11-12").locator(".chk").click({ force: true });         // a forced click still sends nothing
       await c.page.waitForTimeout(300);
       expect(c.completions).toEqual([]);
       expect(c.errors).toEqual([]);
       await c.c.close();
-      // Administrator: Ann's backlog shown with its owner label and an enabled control.
+      // Administrator: may complete anyone's occurrence; no person filter chip for administrators.
       const a = await asUser(admin.id);
-      expect(await a.tc.textContent()).toContain("Ann Original's occurrence (archived)");
-      expect(await a.tc.locator(".chk").getAttribute("aria-disabled")).toBeNull();
+      await a.unit("2026-11-12").waitFor();
+      expect(await a.unit("2026-11-12").locator(".chk").getAttribute("aria-disabled")).toBeNull();
+      expect(await a.page.locator(".fchip", { hasText: "Ada" }).count()).toBe(0);
+      expect(await a.page.locator(".wl-row").count()).toBe(3);                    // Ben, Cara and Dana (staff only)
+      expect(a.errors).toEqual([]);
       await a.c.close();
     } finally {
       await browser.close();

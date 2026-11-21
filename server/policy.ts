@@ -38,4 +38,4 @@ export function canReadPersonal(s: Session, ownerId: string) {
 }
 
 /** Fields staff may change on their own tasks. Everything else is administrator-only. */
-export const STAFF_TASK_FIELDS = new Set(["title", "note", "type", "due_date", "recurrence", "recurrence_until"]);
+export const STAFF_TASK_FIELDS = new Set(["title", "note", "type", "due_date", "recurrence", "recurrence_days", "recurrence_until"]);

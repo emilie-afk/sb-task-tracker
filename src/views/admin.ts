@@ -70,10 +70,10 @@ export async function peopleView(root: HTMLElement, ctx: Ctx) {
   async function archivePerson(p: any) {
     const [open, assignable] = await Promise.all([api(`/people/${p.id}/open-tasks`), api("/people-assignable")]);
     const others = assignable.items.filter((x: any) => x.id !== p.id);
-    const choices = open.items.map((t: any) => ({ t, sel: select([["", "Leave with them for later review"], ...others.map((o: any) => [o.id, `Reassign to ${o.display_name}`] as [string, string])], "") }));
+    const choices = open.items.map((t: any) => ({ t, sel: select([["", "Close (not counted)"], ...others.map((o: any) => [o.id, `Reassign to ${o.display_name}`] as [string, string])], "") }));
     const e2 = h("div"), result = h("div");
     const close = modal(`Archive ${p.display_name}?`, [
-      h("p", { class: "sub" }, "Archiving ends every session and blocks sign-in immediately, even if a reassignment below fails. Their completed work, KPI history and audit records stay attributed to them. Nothing is transferred automatically."),
+      h("p", { class: "sub" }, "Archiving ends every session and blocks sign-in immediately, even if a reassignment below fails. Their completed work, KPI history and audit records stay attributed to them. Any unfinished work you do not reassign is closed: it leaves every open list and is not counted as done or pending (here or in the Marketing Dashboard)."),
       open.items.length ? h("div", null, h("div", { class: "fl" }, `Open tasks (${open.items.length})`), ...choices.map(({ t, sel }: any) => h("div", { class: "split" },
         h("span", null, t.title, t.brand_name ? h("span", { class: "arch-label" }, t.brand_name) : h("span", { class: "arch-label" }, "Unassigned brand"), t.due_date ? h("span", { class: "muted" }, ` · due ${fmtDate(t.due_date)}`) : null), sel)))
         : h("div", { class: "note-line" }, "No open tasks."),
@@ -83,7 +83,7 @@ export async function peopleView(root: HTMLElement, ctx: Ctx) {
         await attempt(e2, async () => {
           const r = await api(`/people/${p.id}/archive`, { method: "POST", json: { version: p.version, reassign } });
           const failed = r.reassigned.filter((x: any) => !x.ok);
-          replace(result, msg("ok", `Archived. ${r.sessions_revoked} session(s) ended.`), ...failed.map((f: any) => msg("notice", `A task stayed with them: ${f.message}`)),
+          replace(result, msg("ok", `Archived. ${r.sessions_revoked} session(s) ended. ${r.closed_tasks} task(s) closed.`), ...failed.map((f: any) => msg("notice", `A task stayed with them: ${f.message}`)),
             ...r.reassigned.flatMap((x: any) => (x.notices ?? []).map((n: string) => msg("notice", n))));
           load();
           if (!failed.length) setTimeout(close, 1200);

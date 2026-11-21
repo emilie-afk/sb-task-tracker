@@ -13,7 +13,7 @@ import { badRequest, forbidden } from "../http";
 import { qp, UUID_RE } from "../validate";
 import { taskReadScope } from "../policy";
 import { todayVN, periodRange, isIsoDate, dayDiff } from "../../shared/dates";
-import { occurrences } from "../../shared/recurrence";
+import { seriesOccurrences } from "../../shared/recurrence";
 import { loadAssignments, ownerOn, oneTimeOwner } from "../ownership";
 
 type Unit = { assignee_id: string; routine: boolean; done: boolean };
@@ -47,7 +47,7 @@ export function registerSummaries(r: Router) {
     params.push(from, to);
     const pf = params.length - 1, pt = params.length;
     const tasks = await query<any>(
-      `select t.id, t.assignee_id, t.type, t.recurrence, t.due_date, t.recurrence_until, t.operational_date, t.completed_on
+      `select t.id, t.assignee_id, t.type, t.recurrence, t.due_date, t.recurrence_until, t.recurrence_days, t.operational_date, t.completed_on
          from tasks t where ${where.join(" and ")}
           and ((t.recurrence is null and ((t.completed_on between $${pf} and $${pt})
                  or (t.completed_on is null and t.operational_date <= $${pt} and (t.due_date is null or t.due_date <= $${pt}))))
@@ -57,18 +57,20 @@ export function registerSummaries(r: Router) {
     const doneOcc = new Set((recurringIds.length ? await query<{ k: string }>(
       "select task_id || ':' || occurrence_date k from task_occurrences where task_id = any($1::uuid[]) and occurrence_date between $2 and $3", [recurringIds, from, to]) : []).map((x) => x.k));
     const asg = await loadAssignments(tasks.map((t) => t.id));
+    // Unfinished work of archived people is closed and never counted (see routes/week.ts).
+    const archived = new Set((await query<{ id: string }>("select id from users where status = 'archived'")).map((u) => u.id));
     let units: Unit[] = [];
     const last = to < today ? to : today;
     for (const t of tasks) {
       const list = asg.get(t.id) ?? [];
       if (!t.recurrence) { units.push({ assignee_id: oneTimeOwner(list, t), routine: t.type === "routine", done: t.completed_on !== null && t.completed_on >= from && t.completed_on <= to }); continue; }
       if (last < from) continue;
-      for (const d of occurrences(t.recurrence, t.due_date, from, last, t.recurrence_until)) units.push({ assignee_id: ownerOn(list, d, t.assignee_id), routine: true, done: doneOcc.has(`${t.id}:${d}`) });
+      for (const d of seriesOccurrences(t, from, last)) units.push({ assignee_id: ownerOn(list, d, t.assignee_id), routine: true, done: doneOcc.has(`${t.id}:${d}`) });
     }
+    units = units.filter((u) => u.done || !archived.has(u.assignee_id));
     if (person !== "all") units = units.filter((u) => u.assignee_id === person);
     else if (!includeArchived) {
       // Default team summaries cover the active team; archived people's work is included only when asked for.
-      const archived = new Set((await query<{ id: string }>("select id from users where status = 'archived'")).map((u) => u.id));
       units = units.filter((u) => !archived.has(u.assignee_id));
     }
     const count = (xs: Unit[]) => ({
@@ -80,7 +82,7 @@ export function registerSummaries(r: Router) {
     let byPerson: any[] | undefined;
     if (s.allBrands && person === "all") {
       const people = await query<{ id: string; display_name: string; archived: boolean }>(
-        `select id, display_name, status = 'archived' archived from users where role <> 'management' ${includeArchived ? "" : "and status <> 'archived'"} order by archived, lower(display_name)`);
+        `select id, display_name, status = 'archived' archived from users where role = 'staff' ${includeArchived ? "" : "and status <> 'archived'"} order by archived, lower(display_name)`);
       byPerson = people.map((p) => ({ id: p.id, name: p.display_name, archived: p.archived, ...count(units.filter((u) => u.assignee_id === p.id)) }))
         .filter((p) => p.done + p.pending > 0 || !p.archived);
     }
