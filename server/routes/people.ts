@@ -79,13 +79,13 @@ export function registerPeople(r: Router) {
         order by t.due_date nulls last, t.created_at`, [params.id, todayVN()]) };
   });
 
-  /** People who may hold a task in a brand (administrators, and staff with access). Archived people never appear. */
+  /** People who may hold a new task in a brand: staff with access. Administrators and archived people never appear. */
   r.get("/people-assignable", ADMIN, async ({ url }) => {
     const brand = qp(url, "brand", /^(none|[0-9a-f-]{36})$/, "none")!;
     return { items: await query(
       `select u.id, u.display_name, u.role, u.status from users u
-        where u.status <> 'archived' and (u.role = 'administrator' or (u.role = 'staff' and ($1::uuid is null
-              or exists (select 1 from user_brand_access a where a.user_id = u.id and a.brand_id = $1::uuid))))
+        where u.status <> 'archived' and u.role = 'staff' and ($1::uuid is null
+              or exists (select 1 from user_brand_access a where a.user_id = u.id and a.brand_id = $1::uuid))
         order by lower(u.display_name)`, [brand === "none" ? null : brand]) };
   });
 
@@ -149,7 +149,12 @@ export function registerPeople(r: Router) {
         results.push({ task_id: item.task_id, ok: false, message: e instanceof HttpError ? e.message : "Could not reassign this task." });
       }
     }
-    return { archived: true, sessions_revoked: revoked, reassigned: results };
+    // Whatever stays with the archived person is closed from now on: not open, not done, never counted
+    // (routes/week.ts). Their finished work keeps its credit.
+    const left = await one<{ n: number }>(
+      `select count(*)::int n from tasks where assignee_id = $1 and deleted_at is null and completed_on is null
+          and (recurrence is null or recurrence_until is null or recurrence_until >= $2::date)`, [params.id, todayVN()]);
+    return { archived: true, sessions_revoked: revoked, reassigned: results, closed_tasks: left?.n ?? 0 };
   }, true);
 
   r.post("/people/:id/restore", ADMIN, async ({ req, params, session: s }) => {

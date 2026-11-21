@@ -122,12 +122,13 @@ export async function handlePlanning(req: Request, path: string): Promise<Respon
   if (path === "/planning/v1/directory" && req.method === "GET") {
     const brands = await scopeBrands(cred.allowed_business_ids);
     const ids = brands.map((b) => b.id);
-    // People who could be assigned in at least one of these brands (the same rule the task editor applies).
+    // People who could be assigned in at least one of these brands (the same rule the task editor applies:
+    // active staff with access; administrators manage tasks and do not hold them).
     const people = await query<any>(
       `select u.id, u.display_name name, u.role,
-              case when u.role = 'administrator' then $1::uuid[] else coalesce(array_agg(a.brand_id) filter (where a.brand_id = any($1::uuid[])), '{}') end brand_ids
+              coalesce(array_agg(a.brand_id) filter (where a.brand_id = any($1::uuid[])), '{}') brand_ids
          from users u left join user_brand_access a on a.user_id = u.id
-        where u.status <> 'archived' and u.role in ('administrator', 'staff')
+        where u.status <> 'archived' and u.role = 'staff'
         group by u.id order by lower(u.display_name)`, [ids]);
     return json({ brands, people: people.filter((p) => p.brand_ids.length).map((p) => ({ id: p.id, name: p.name, brand_ids: p.brand_ids })) });
   }

@@ -56,7 +56,8 @@ describe("directory", () => {
     expect(r.status).toBe(200);
     expect(r.body.brands.map((b: any) => b.name)).toEqual(["Alpha Plants"]);
     const names = r.body.people.map((p: any) => p.name);
-    expect(names).toEqual(expect.arrayContaining(["Ada Admin", "Ben Admin", "Thao Staff"]));
+    expect(names).toEqual(["Thao Staff"]);
+    expect(names).not.toContain("Ada Admin");           // administrators manage tasks and do not hold them
     expect(names).not.toContain("Omar Other");          // no access to an allowed brand
     expect(names).not.toContain("Mia Management");      // management cannot hold tasks
     expect(JSON.stringify(r.body)).not.toContain("@example.test");   // no emails

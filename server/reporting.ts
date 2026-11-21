@@ -24,7 +24,7 @@ import { HttpError, json } from "./http";
 import { appSecret, instanceId, appOrigin } from "./config";
 import { hit, clientKey, RATE } from "./rateLimit";
 import { todayVN, addDays } from "../shared/dates";
-import { occurrences } from "../shared/recurrence";
+import { seriesOccurrences } from "../shared/recurrence";
 import { loadAssignments, ownerOn, oneTimeOwner } from "./ownership";
 
 export const REPORTING_HEADER = "x-tracker-reporting-key";
@@ -57,7 +57,7 @@ async function buildSnapshot(allowed: string[]) {
     const from = addDays(today, -REPORT_LIMITS.windowBackDays), to = addDays(today, REPORT_LIMITS.windowAheadDays);
     const inScope = `b.reporting_enabled and b.dashboard_business_id = any($1::text[])`;
     const rows = (await c.query(
-      `select t.id, t.title, t.type, t.due_date, t.recurrence, t.recurrence_until, t.completed_on, t.completed_at, t.updated_at, t.operational_date,
+      `select t.id, t.title, t.type, t.due_date, t.recurrence, t.recurrence_until, t.recurrence_days, t.completed_on, t.completed_at, t.updated_at, t.operational_date,
               b.id brand_id, b.display_name brand_name, b.status brand_status, b.dashboard_business_id business_id, t.assignee_id
          from tasks t join brands b on b.id = t.brand_id
         where t.deleted_at is null and ${inScope}
@@ -84,13 +84,17 @@ async function buildSnapshot(allowed: string[]) {
         brand: { id: r.brand_id, name: r.brand_name, archived: r.brand_status === "archived" },
         recurrence: r.recurrence, source_updated_at: new Date(r.updated_at).toISOString(), open_url: `${origin}/#/tasks/${r.id}`,
       };
+      // Unfinished work of an archived owner is closed: not reported, so the dashboard drops its copy and never
+      // counts it as open or done.
       if (!r.recurrence) {
+        if (!r.completed_on && users.get(oneTimeOwner(list, r))?.status === "archived") continue;
         items.push({ record_id: `task:${r.id}`, kind: "task", ...base, assignee: person(oneTimeOwner(list, r)), occurrence_date: null, due_date: r.due_date,
           status: r.completed_on ? "done" : "open", completed_on: r.completed_on, created_on: r.operational_date });
         continue;
       }
-      for (const d of occurrences(r.recurrence, r.due_date, from, to, r.recurrence_until)) {
+      for (const d of seriesOccurrences(r, from, to)) {
         const o = done.get(`${r.id}:${d}`);
+        if (!o && users.get(ownerOn(list, d, r.assignee_id))?.status === "archived") continue;
         items.push({ record_id: `occ:${r.id}:${d}`, kind: "occurrence", ...base, assignee: person(ownerOn(list, d, r.assignee_id)), occurrence_date: d, due_date: d,
           status: o ? "done" : "open", completed_on: o?.completed_on ?? null, created_on: r.operational_date });
       }
@@ -102,6 +106,28 @@ async function buildSnapshot(allowed: string[]) {
       `select t.id task_id, t.recurrence is not null recurring, t.due_date::text first_due, t.recurrence_until::text until
          from tasks t join brands b on b.id = t.brand_id where t.deleted_at is null and ${inScope} order by t.id`, [allowed])).rows
       .map((x) => ({ task_id: x.task_id, recurring: x.recurring, first_due: x.recurring ? x.first_due : null, until: x.recurring ? x.until : null }));
+    // Closed work across a series' whole history: the periods in which an archived person owned it. Unfinished
+    // occurrences dated in them are closed, so a reader removes its open copies there even outside the window
+    // (after any sync gap); done copies keep their credit. Sent only for series that have such periods.
+    const recScope = scopeTasks.filter((x) => x.recurring);
+    const scopeAsg = await loadAssignments(recScope.map((x) => x.task_id), c);
+    const owners = new Set<string>();
+    for (const list of scopeAsg.values()) for (const a of list) owners.add(a.assignee_id);
+    const archivedOwners = new Set((owners.size ? (await c.query("select id from users where id = any($1::uuid[]) and status = 'archived'", [[...owners]])).rows : []).map((u: any) => u.id));
+    for (const x of recScope as any[]) {
+      const list = scopeAsg.get(x.task_id) ?? [];
+      const periods: { from: string; to: string | null }[] = [];
+      list.forEach((a, i) => {
+        if (!archivedOwners.has(a.assignee_id)) return;
+        const from = i === 0 || a.effective_from < x.first_due ? x.first_due : a.effective_from;
+        let to: string | null = i + 1 < list.length ? addDays(list[i + 1].effective_from, -1) : null;
+        if (x.until && (to === null || x.until < to)) to = x.until;
+        if (to !== null && to < from) return;
+        const last = periods[periods.length - 1];
+        if (last && last.to !== null && addDays(last.to, 1) === from) last.to = to; else periods.push({ from, to });
+      });
+      if (periods.length) x.closed_periods = periods;
+    }
     items.sort((a, b) => (a.record_id < b.record_id ? -1 : a.record_id > b.record_id ? 1 : 0));
     // Remember which tasks have ever been reported, so removal markers name only those (never tasks of
     // unrelated brands), and list the ones that recently left the reported set, with the reason.

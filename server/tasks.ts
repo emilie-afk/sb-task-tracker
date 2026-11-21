@@ -3,13 +3,13 @@ import type pg from "pg";
 import type { Session } from "./auth";
 import { HttpError, notFound } from "./http";
 import { canEditTask, canReadBrand, isAdmin } from "./policy";
-import { occurrences, nextOccurrence, type Rule } from "../shared/recurrence";
+import { seriesOccurrences, type Rule } from "../shared/recurrence";
 import { addDays } from "../shared/dates";
 import { recordReassignment, ownerOn, type Assignment } from "./ownership";
 
 export type TaskRow = {
   id: string; brand_id: string | null; assignee_id: string; creator_id: string; title: string; note: string | null; type: string;
-  due_date: string | null; recurrence: Rule | null; recurrence_until: string | null; previous_series_id: string | null; kpi_id: string | null;
+  due_date: string | null; recurrence: Rule | null; recurrence_until: string | null; recurrence_days: number[] | null; previous_series_id: string | null; kpi_id: string | null;
   legacy_kpi_label: string | null; operational_date: string; completed_on: string | null; completed_at: Date | null; completed_by: string | null;
   deleted_at: Date | null; version: number; created_at: Date; updated_at: Date;
 };
@@ -26,15 +26,17 @@ export function assertReadable(s: Session, t: { brand_id: string | null }) {
 }
 
 /**
- * Who may be assigned a task in a brand: a non-archived administrator, or a non-archived staff member with access
- * to that brand (any non-archived staff member for Unassigned-brand tasks, which only administrators handle).
- * Management cannot hold tasks. Access is never granted implicitly here.
+ * Who may be assigned a task in a brand: a non-archived staff member with access to that brand (any non-archived
+ * staff member for Unassigned-brand tasks, which only administrators handle). Administrators manage the team's work
+ * and do not hold new tasks; Management is view-only. Tasks an administrator already holds stay with them (history
+ * is preserved) until they are reassigned. Access is never granted implicitly here.
  */
 export async function assignability(c: pg.PoolClient | pg.Pool, assigneeId: string, brandId: string | null) {
   const u = (await c.query("select id, role, status, display_name from users where id = $1", [assigneeId])).rows[0];
   if (!u) return { ok: false as const, reason: "unknown_person", message: "That person does not exist." };
   if (u.status === "archived") return { ok: false as const, reason: "archived_person", message: `${u.display_name} is archived and cannot receive new assignments.` };
   if (u.role === "management") return { ok: false as const, reason: "management_role", message: "Management accounts are view-only and cannot hold tasks." };
+  if (u.role === "administrator") return { ok: false as const, reason: "administrator_not_assignable", message: `${u.display_name} is an administrator. Administrators manage tasks; assign it to a staff member.` };
   if (u.role === "staff" && brandId) {
     const a = (await c.query("select 1 from user_brand_access where user_id = $1 and brand_id = $2", [assigneeId, brandId])).rows[0];
     if (!a) return { ok: false as const, reason: "assignee_lacks_brand_access", message: `${u.display_name} does not have access to that brand. Reassign the task, or update their brand access first.` };
@@ -86,14 +88,14 @@ export async function reassignTask(c: pg.PoolClient, actorId: string, taskId: st
 }
 
 export type OccurrenceView = { date: string; done: boolean; completed_on: string | null; overdue: boolean; upcoming: boolean };
-type Series = Pick<TaskRow, "recurrence" | "due_date" | "recurrence_until">;
+type Series = Pick<TaskRow, "recurrence" | "due_date" | "recurrence_until"> & { recurrence_days?: number[] | null };
 export type Eligible = (date: string) => boolean;
 const everyDate: Eligible = () => true;
 
 const eligibleNext = (t: Series, today: string, eligible: Eligible) =>
-  occurrences(t.recurrence!, t.due_date!, addDays(today, 1), addDays(today, 366), t.recurrence_until).find(eligible) ?? null;
+  seriesOccurrences(t, addDays(today, 1), addDays(today, 366)).find(eligible) ?? null;
 const eligibleLast = (t: Series, today: string, eligible: Eligible) =>
-  occurrences(t.recurrence!, t.due_date!, addDays(today, -400), today, t.recurrence_until).filter(eligible).pop() ?? null;
+  seriesOccurrences(t, addDays(today, -400), today).filter(eligible).pop() ?? null;
 
 /**
  * The occurrence a recurring task card shows today, among the occurrences `eligible` allows (for staff: their
@@ -103,7 +105,7 @@ const eligibleLast = (t: Series, today: string, eligible: Eligible) =>
  */
 export function currentOccurrence(t: Series, today: string, done: Map<string, string>, eligible: Eligible = everyDate): OccurrenceView | null {
   if (!t.recurrence || !t.due_date) return null;
-  const recent = occurrences(t.recurrence, t.due_date, addDays(today, -7), today, t.recurrence_until).filter(eligible);
+  const recent = seriesOccurrences(t, addDays(today, -7), today).filter(eligible);
   const open = recent.find((d) => !done.has(d));
   if (open) return { date: open, done: false, completed_on: null, overdue: open < today, upcoming: false };
   if (recent.includes(today)) return { date: today, done: true, completed_on: done.get(today) ?? null, overdue: false, upcoming: false };
@@ -119,7 +121,7 @@ export function currentOccurrence(t: Series, today: string, done: Map<string, st
  */
 export function candidateOccurrenceDates(t: Series, today: string, eligible: Eligible = everyDate): string[] {
   if (!t.recurrence || !t.due_date) return [];
-  const set = new Set(occurrences(t.recurrence, t.due_date, addDays(today, -7), today, t.recurrence_until).filter(eligible));
+  const set = new Set(seriesOccurrences(t, addDays(today, -7), today).filter(eligible));
   const next = eligibleNext(t, today, eligible);
   if (next) set.add(next);
   const last = eligibleLast(t, today, eligible);

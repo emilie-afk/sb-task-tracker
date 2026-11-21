@@ -1,15 +1,18 @@
-// Tasks screen: brand tabs, filters, single and bulk task creation, task cards, edit and detail dialogs, daily
-// summary, KPI scorecard, team workload and period analytics. Management sees everything read-only.
+// Tasks screen: a weekly timeline (Monday–Sunday, Vietnam time) with overdue, undated, upcoming and completed
+// work; brand, staff, type and search filters; single and bulk task creation with weekly schedules; edit and
+// detail dialogs; week summary, KPI scorecard, team workload and period analytics.
+// Administrators manage everyone's tasks, staff carry out their own, Management reads everything.
 import { h, replace, clear, tint, fmtDate, fmtTime, initials } from "../dom";
 import { api, errorText, ApiError } from "../api";
 import { modal, msg, attempt, select, field } from "../ui";
+import { addDays, weekStart, isoWeekday } from "../../shared/dates";
 import type { Ctx } from "../main";
 
-/** Why an occurrence's completion control is disabled (same reasons the server enforces). */
-function blockedText(o: any): string {
-  if (!o) return "View only";
-  if (o.completion_blocked === "too_far_ahead") return `Can be completed from ${fmtDate(o.completable_from)}`;
-  if (o.completion_blocked === "other_owner") return `Belongs to ${o.owner?.name ?? "someone else"}`;
+/** Why a completion control is disabled (same reasons the server enforces). */
+function blockedText(u: any): string {
+  if (!u) return "View only";
+  if (u.completion_blocked === "too_far_ahead") return `Can be completed from ${fmtDate(u.completable_from)}`;
+  if (u.completion_blocked === "other_owner") return `Belongs to ${u.owner?.name ?? "someone else"}`;
   return "View only";
 }
 
@@ -17,22 +20,64 @@ type Brand = { id: string; display_name: string; color: string | null; status: s
 type Person = { id: string; display_name: string; role: string; archived: boolean };
 
 const TYPES: [string, string][] = [["routine", "Routine"], ["adhoc", "Ad hoc"], ["video", "Video"]];
-const REPEATS: [string, string][] = [["", "No repeat"], ["daily", "Daily (every day)"], ["weekdays", "Weekdays (Mon–Fri)"], ["weekly", "Weekly"], ["monthly", "Monthly"]];
-const REPEAT_LABEL: Record<string, string> = { daily: "↻ Daily", weekdays: "↻ Weekdays", weekly: "↻ Weekly", monthly: "↻ Monthly" };
+const REPEATS: [string, string][] = [["", "No repeat"], ["weekly", "Repeat weekly"], ["weekdays", "Weekdays (Mon–Fri)"], ["daily", "Every day"], ["monthly", "Monthly"]];
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const weekLabel = (ws: string) => `${fmtDate(ws)} – ${fmtDate(addDays(ws, 6))}, ${addDays(ws, 6).slice(0, 4)}`;
+
+/**
+ * Schedule controls shared by the add form and the editor: repeat rule, weekday checkboxes (weekly), start date
+ * and optional end date. A weekly schedule whose weekdays were not picked by hand follows the start date.
+ */
+function scheduleFields(init: { recurrence: string | null; days: number[] | null; start: string | null; until: string | null }, startLabel: string) {
+  const fRepeat = select(REPEATS, init.recurrence ?? "");
+  const fStart = h("input", { type: "date", value: init.start ?? "", class: "f-start" });
+  const fUntil = h("input", { type: "date", value: init.until ?? "", class: "f-until" });
+  let touched = !!init.days;
+  const boxes = DAYS.map((d, i) => h("input", { type: "checkbox", value: String(i + 1), checked: !!init.days?.includes(i + 1), "aria-label": DAY_LONG[i],
+    on: { change: () => { touched = true; } } }));
+  const dayRow = h("div", { class: "weekday-pick" }, ...boxes.map((b, i) => h("label", { class: "inline" }, b, DAYS[i])));
+  const dayWrap = h("div", { class: "hidden" }, field("Repeat on", dayRow));
+  const untilWrap = h("div", null, field("End date (optional)", fUntil));
+  const startLabelEl = h("div", { class: "fl" }, startLabel);
+  const followStart = () => {
+    if (touched || !fStart.value) return;
+    const wd = isoWeekday(fStart.value);
+    boxes.forEach((b, i) => { b.checked = i + 1 === wd; });
+  };
+  const sync = () => {
+    dayWrap.className = fRepeat.value === "weekly" ? "" : "hidden";
+    untilWrap.className = fRepeat.value ? "" : "hidden";
+    if (fRepeat.value === "weekly") followStart();
+  };
+  fRepeat.addEventListener("change", sync);
+  fStart.addEventListener("change", () => { if (fRepeat.value === "weekly") followStart(); });
+  sync();
+  const days = () => (fRepeat.value === "weekly" ? boxes.filter((b) => b.checked).map((b) => Number(b.value)) : null);
+  const node = h("div", null,
+    h("div", { class: "fg fg3" }, field("Repeat", fRepeat), h("div", null, startLabelEl, fStart), untilWrap),
+    dayWrap);
+  return { fRepeat, fStart, fUntil, days, node, sync, startLabelEl,
+    value: () => ({ recurrence: fRepeat.value || null, recurrence_days: fRepeat.value === "weekly" ? (days()!.length ? days() : null) : null,
+      due_date: fStart.value || null, recurrence_until: fRepeat.value ? fUntil.value || null : null }) };
+}
 
 export async function tasksView(root: HTMLElement, ctx: Ctx) {
   const me = ctx.me;
   const isAdmin = me.role === "administrator", isMgmt = me.role === "management", readsAll = isAdmin || isMgmt;
-  const state = { brand: "all", brandStatus: "active", person: me.role === "staff" ? me.id : "all", type: "all", q: "", period: "today", from: ctx.today, to: ctx.today, showArchivedPeople: false };
+  const state = { brand: "all", brandStatus: "active", person: me.role === "staff" ? me.id : "all", type: "all", q: "", period: "today", from: ctx.today, to: ctx.today,
+    showArchivedPeople: false, week: weekStart(ctx.today) };
   let brands: Brand[] = [], people: Person[] = [];
+  let lastWeek: any = null;
 
   const btabs = h("div", { class: "btabs" });
   const personFilter = h("div", { class: "row" });
   const typeChips = h("div", { class: "row" });
-  const search = h("input", { type: "text", class: "search-in", placeholder: "Search…", "aria-label": "Search tasks", on: { input: debounce(() => { state.q = search.value.trim(); loadTasks(); }, 250) } });
+  const search = h("input", { type: "text", class: "search-in", placeholder: "Search…", "aria-label": "Search tasks", on: { input: debounce(() => { state.q = search.value.trim(); loadWeek(); }, 250) } });
   const addWrap = h("div", { class: "add-wrap" });
-  const strip = h("div", { class: "hidden" });
+  const weekBar = h("div", { class: "weekbar" });
   const taskArea = h("div");
+  const summaryTitle = h("div", { class: "pt" });
   const summaryArea = h("div"), kpiArea = h("div"), teamArea = h("div"), analyticsArea = h("div");
   const archivedToggle = h("label", { class: "inline" }, h("input", { type: "checkbox", on: { change: (e: Event) => { state.brandStatus = (e.target as HTMLInputElement).checked ? "archived" : "active"; state.brand = "all"; renderBrandTabs(); loadAll(); } } }), "Archived brands");
 
@@ -41,12 +86,13 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
       h("div", null,
         h("div", { class: "toolbar" }, btabs, h("div", { class: "sep" }), archivedToggle),
         h("div", { class: "toolbar" }, personFilter, h("div", { class: "sep" }), typeChips, h("div", { class: "search-wrap" }, h("span", { class: "search-icon" }, "⚲"), search)),
-        addWrap, strip, taskArea,
-        isMgmt ? null : h("button", { class: "btn-add", on: { click: () => openAdd() } }, "+ Add task")),
+        addWrap,
+        isMgmt ? null : h("button", { class: "btn-add", on: { click: () => openAdd() } }, isAdmin ? "+ Assign task" : "+ Add task"),
+        weekBar, taskArea),
       h("div", { class: "rp" },
-        h("div", { class: "panel" }, h("div", { class: "pt" }, `Today · ${fmtDate(ctx.today)}`), summaryArea),
+        h("div", { class: "panel" }, summaryTitle, summaryArea),
         h("div", { class: "panel" }, h("div", { class: "pt" }, "EOS Scorecard"), kpiArea),
-        readsAll ? h("div", { class: "panel" }, h("div", { class: "pt" }, "Team workload · today"), teamArea) : null,
+        readsAll ? h("div", { class: "panel team-panel" }, h("div", { class: "pt" }, "Team workload · week"), teamArea) : null,
         h("div", { class: "panel" }, h("div", { class: "pt" }, "Analytics"), analyticsArea))));
 
   // ------------------------------------------------------------------ filters
@@ -59,55 +105,77 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
     replace(btabs, tab("all", "All"), ...visible.map((b) => tab(b.id, b.display_name, b.color, b.status === "archived")),
       readsAll && state.brandStatus === "active" ? tab("unassigned", "Unassigned brand") : null);
   }
+  /** Task-doer filter: staff only (administrators manage tasks, Management reads them). */
   function renderPersonFilter() {
-    const list = people.filter((p) => p.role !== "management" && (state.showArchivedPeople || !p.archived || p.id === state.person));
+    const list = people.filter((p) => p.role === "staff" && (state.showArchivedPeople || !p.archived || p.id === state.person));
     const chip = (id: string, label: string, archived = false) => h("button", { class: "fchip" + (state.person === id ? " on" : ""), on: { click: () => { state.person = id; renderPersonFilter(); loadAll(); } } },
       label, archived ? h("span", { class: "arch-label" }, "Archived") : null);
     replace(personFilter, chip("all", "Everyone"), ...list.map((p) => chip(p.id, p.display_name.split(" ")[0] || p.display_name, p.archived)),
-      people.some((p) => p.archived) ? h("label", { class: "inline" }, h("input", { type: "checkbox", checked: state.showArchivedPeople, on: { change: (e: Event) => { state.showArchivedPeople = (e.target as HTMLInputElement).checked; renderPersonFilter(); } } }), "Show archived") : null);
+      people.some((p) => p.archived && p.role === "staff") ? h("label", { class: "inline" }, h("input", { type: "checkbox", checked: state.showArchivedPeople, on: { change: (e: Event) => { state.showArchivedPeople = (e.target as HTMLInputElement).checked; renderPersonFilter(); } } }), "Show archived") : null);
   }
   function renderTypeChips() {
-    const chip = (v: string, l: string) => h("button", { class: "fchip" + (state.type === v ? " on" : ""), on: { click: () => { state.type = v; renderTypeChips(); loadTasks(); } } }, l);
+    const chip = (v: string, l: string) => h("button", { class: "fchip" + (state.type === v ? " on" : ""), on: { click: () => { state.type = v; renderTypeChips(); loadWeek(); } } }, l);
     replace(typeChips, chip("all", "All types"), ...TYPES.map(([v, l]) => chip(v, l)));
   }
   const qs = (extra: Record<string, string> = {}) => new URLSearchParams({ brand: state.brand, brand_status: state.brandStatus, person: state.person, type: state.type, ...(state.q ? { q: state.q } : {}), ...extra }).toString();
 
-  // ------------------------------------------------------------------ task list
-  async function loadTasks() {
+  // ------------------------------------------------------------------ week navigation
+  function renderWeekBar() {
+    const current = weekStart(ctx.today);
+    const go = (ws: string) => { state.week = ws; loadWeek(); };
+    const opts: [string, string][] = [];
+    for (let i = -12; i <= 12; i++) { const ws = addDays(current, 7 * i); opts.push([ws, weekLabel(ws) + (i === 0 ? " (this week)" : "")]); }
+    if (!opts.some(([v]) => v === state.week)) opts.push([state.week, weekLabel(state.week)]);
+    opts.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const pick = select(opts, state.week, { class: "week-pick", "aria-label": "Week", on: { change: (e: Event) => go((e.target as HTMLSelectElement).value) } });
+    replace(weekBar,
+      h("button", { class: "btn-sm week-prev", "aria-label": "Previous week", on: { click: () => go(addDays(state.week, -7)) } }, "‹ Previous"),
+      pick,
+      h("button", { class: "btn-sm week-next", "aria-label": "Next week", on: { click: () => go(addDays(state.week, 7)) } }, "Next ›"),
+      state.week !== current ? h("button", { class: "btn-sm week-today", on: { click: () => go(current) } }, "This week") : null);
+  }
+
+  // ------------------------------------------------------------------ timeline
+  async function loadWeek() {
+    renderWeekBar();
     try {
-      const r = await api(`/tasks?${qs()}`);
-      renderTasks(r.items, r.total);
-    } catch (e) { replace(taskArea, msg("error", errorText(e))); }
+      const w = await api(`/tasks/week?${qs({ start: state.week })}`);
+      lastWeek = w;
+      renderTimeline(w);
+      renderWeekSummary(w);
+    } catch (e) { replace(taskArea, msg("error", errorText(e))); replace(summaryArea, msg("error", errorText(e))); }
   }
-  function renderTasks(items: any[], total: number) {
-    const open = items.filter((t) => t.status === "open"), done = items.filter((t) => t.status === "done");
-    const overdue = open.filter((t) => t.overdue), current = open.filter((t) => !t.overdue);
-    const section = (title: string, list: any[], extra: Node | null = null) => list.length
-      ? [h("div", { class: "sh" }, extra, title, h("span", { class: "cnt" }, list.length)), h("div", { class: "tlist" }, ...list.map(card))] : [];
+  function renderTimeline(w: any) {
+    const section = (cls: string, title: Node | string, list: any[], icon: Node | null = null) =>
+      h("div", { class: "tl-sec " + cls }, h("div", { class: "sh" }, icon, title, h("span", { class: "cnt" }, list.length)), h("div", { class: "tlist" }, ...list.map(unitCard)));
+    const dayBlocks = w.days.map((d: any) => {
+      const wd = isoWeekday(d.date);
+      const isToday = d.date === w.today;
+      return h("div", { class: "tl-day" + (isToday ? " today" : "") + (d.date < w.today ? " past" : ""), "data-date": d.date },
+        h("div", { class: "sh" }, `${DAY_LONG[wd - 1]} · ${fmtDate(d.date)}`, isToday ? h("span", { class: "today-tag" }, "Today") : null, h("span", { class: "cnt" }, d.items.length)),
+        d.items.length ? h("div", { class: "tlist" }, ...d.items.map(unitCard)) : h("div", { class: "tl-none" }, d.date < w.today ? "—" : "Nothing due"));
+    });
+    const completed = w.completed.length
+      ? h("details", { class: "tl-sec tl-done" }, h("summary", { class: "sh" }, "Completed this week", h("span", { class: "cnt" }, w.completed.length)), h("div", { class: "tlist" }, ...w.completed.map(unitCard)))
+      : null;
     replace(taskArea,
-      ...section("Overdue", overdue, h("span", { class: "red" }, "⚠")),
-      ...section("Active", current),
-      open.length ? null : h("div", { class: "empty" }, "No active tasks for this view."),
-      ...section("Completed", done),
-      total > items.length ? h("div", { class: "note-line" }, `Showing the latest ${items.length} of ${total} tasks. Narrow the filters to see others.`) : null);
-    const todayTotal = items.filter((t) => (t.occurrence ? t.occurrence.date === ctx.today : t.operational_date === ctx.today));
-    if (todayTotal.length) {
-      const d = todayTotal.filter((t) => t.status === "done").length;
-      replace(strip, h("div", { class: "row card" }, h("b", null, `${todayTotal.length} tasks today`), h("span", { class: "green" }, `${d} done`), h("span", { class: d === todayTotal.length ? "green" : "red" }, `${todayTotal.length - d} pending`)));
-      strip.className = "";
-    } else strip.className = "hidden";
+      w.overdue.length ? section("tl-overdue", "Overdue", w.overdue, h("span", { class: "red" }, "⚠")) : null,
+      h("div", { class: "tl-week" }, ...dayBlocks),
+      w.undated.length ? section("tl-undated", "No due date", w.undated) : null,
+      w.upcoming.length ? h("div", { class: "tl-sec tl-upcoming" }, h("div", { class: "sh" }, "Upcoming", h("span", { class: "cnt" }, w.upcoming.reduce((n: number, g: any) => n + g.items.length, 0))),
+        ...w.upcoming.map((g: any) => h("div", { class: "tl-upweek" }, h("div", { class: "fl" }, `Week of ${weekLabel(g.week_start)}`), h("div", { class: "tlist" }, ...g.items.map(unitCard))))) : null,
+      completed,
+      h("div", { class: "note-line" }, `Overdue looks back ${w.overdue_lookback_days} days for repeating tasks; older occurrences stay in their own weeks. Unfinished work of archived people is closed and not shown.`));
   }
-  function card(t: any) {
-    const done = t.status === "done";
-    // Completion follows the occurrence's owner (can_complete), not permission to edit the series (can_edit).
-    const chk = h("div", { class: "chk" + (done ? " on" : "") + (t.can_complete ? "" : " disabled"), role: "checkbox", "aria-checked": String(done),
-      "aria-disabled": t.can_complete ? null : "true", tabindex: t.can_complete ? "0" : "-1",
-      title: t.can_complete ? (done ? "Mark not done" : "Mark done") : blockedText(t.occurrence),
-      on: { click: () => t.can_complete && toggle(t) } }, done ? "✓" : "");
-    const otherOwner = t.occurrence && t.occurrence.owner.id !== t.assignee.id ? t.occurrence.owner : null;
-    const brandBadge = t.brand ? tint(h("span", { class: "b brand-badge" }, t.brand.name), null) : h("span", { class: "b brand-badge" }, "Unassigned brand");
-    const due = t.occurrence ? t.occurrence.date : t.due_date;
-    return h("div", { class: "tc" + (done ? " done-c" : "") },
+  function unitCard(u: any) {
+    const t = u.task;
+    const done = u.status === "done";
+    const chk = h("div", { class: "chk" + (done ? " on" : "") + (u.can_complete ? "" : " disabled"), role: "checkbox", "aria-checked": String(done),
+      "aria-disabled": u.can_complete ? null : "true", tabindex: u.can_complete ? "0" : "-1",
+      title: u.can_complete ? (done ? "Mark not done" : "Mark done") : blockedText(u),
+      on: { click: () => u.can_complete && toggle(u), keydown: (e: KeyboardEvent) => { if ((e.key === " " || e.key === "Enter") && u.can_complete) { e.preventDefault(); toggle(u); } } } }, done ? "✓" : "");
+    const brandBadge = t.brand ? h("span", { class: "b brand-badge" }, t.brand.name) : h("span", { class: "b brand-badge" }, "Unassigned brand");
+    return h("div", { class: "tc" + (done ? " done-c" : ""), "data-key": u.key },
       chk,
       h("div", { class: "ti" },
         h("div", { class: "tt" }, h("a", { href: `#/tasks/${t.id}`, class: "plain" }, t.title)),
@@ -116,21 +184,21 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
           h("span", { class: "b " + (t.type === "routine" ? "br" : t.type === "video" ? "bv" : "ba") }, TYPES.find(([v]) => v === t.type)?.[1] ?? t.type),
           state.brand === "all" || state.brand === "unassigned" ? brandBadge : null,
           t.brand?.archived ? h("span", { class: "arch-label" }, "Archived brand") : null,
-          h("span", { class: "ac" }, t.assignee.name), t.assignee.archived ? h("span", { class: "arch-label" }, "Archived") : null,
-          t.recurrence ? h("span", { class: "rc" }, REPEAT_LABEL[t.recurrence] ?? "↻") : null,
+          h("span", { class: "ac" }, u.owner.name), u.owner.archived ? h("span", { class: "arch-label" }, "Archived") : null,
+          t.schedule ? h("span", { class: "rc" }, "↻ " + t.schedule) : null,
           t.kpi ? h("span", { class: "kc" }, `⬡ ${t.kpi.metric}${t.kpi.sub_metric ? " · " + t.kpi.sub_metric : ""}`) : t.legacy_kpi_label ? h("span", { class: "kc" }, `⬡ ${t.legacy_kpi_label}`) : null,
-          due && !done ? h("span", { class: t.overdue ? "od" : "mt" }, `${t.occurrence?.upcoming ? "Next" : "Due"} ${fmtDate(due)}`) : null,
-          done && t.occurrence ? h("span", { class: "mt" }, `Done for ${fmtDate(t.occurrence.date)}`) : null,
-          t.occurrence?.completion_blocked === "too_far_ahead" ? h("span", { class: "mt too-early" }, blockedText(t.occurrence)) : null,
-          otherOwner ? h("span", { class: "arch-label" }, `${otherOwner.name}'s occurrence${otherOwner.archived ? " (archived)" : ""}`) : null)),
+          u.date && !done ? h("span", { class: u.overdue ? "od" : "mt" }, `${u.kind === "occurrence" ? "For" : "Due"} ${fmtDate(u.date)}`) : null,
+          done ? h("span", { class: "mt" }, u.kind === "occurrence" ? `Done for ${fmtDate(u.date)}` : `Done ${fmtDate(u.completed_on)}`) : null,
+          done && u.completed_by && u.completed_by !== u.owner.name ? h("span", { class: "mt" }, `ticked by ${u.completed_by}`) : null,
+          u.completion_blocked === "too_far_ahead" ? h("span", { class: "mt too-early" }, blockedText(u)) : null)),
       h("div", { class: "tc-actions" },
-        t.can_edit ? h("button", { class: "ic-btn", title: "Edit", "aria-label": "Edit task", on: { click: () => openEdit(t) } }, "✎") : null,
+        t.can_edit ? h("button", { class: "ic-btn", title: "Edit", "aria-label": "Edit task", on: { click: () => openEdit(t.id) } }, "✎") : null,
         t.can_edit ? h("button", { class: "ic-btn del", title: "Delete", "aria-label": "Delete task", on: { click: () => del(t) } }, "✕") : null));
   }
-  async function toggle(t: any) {
+  async function toggle(u: any) {
     try {
-      const body = t.recurrence ? { done: !t.occurrence?.done, occurrence_date: t.occurrence?.date } : { done: t.status !== "done", version: t.version };
-      await api(`/tasks/${t.id}/completion`, { method: "POST", json: body });
+      const body = u.kind === "occurrence" ? { done: u.status !== "done", occurrence_date: u.date } : { done: u.status !== "done", version: u.task.version };
+      await api(`/tasks/${u.task_id}/completion`, { method: "POST", json: body });
     } catch (e) { alert(errorText(e)); }
     loadAll();
   }
@@ -142,7 +210,7 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
 
   // ------------------------------------------------------------------ add task
   async function kpiOptions(owner: string, brand: string): Promise<[string, string][]> {
-    if (!brand || brand === "none" || (!isAdmin && owner !== me.id)) return [["", "— None —"]];
+    if (!owner || !brand || brand === "none" || (!isAdmin && owner !== me.id)) return [["", "— None —"]];
     try {
       const r = await api(`/kpis?owner=${owner}&brand=${brand}`);
       return [["", "— None —"], ...r.items.map((k: any) => [k.id, `${k.metric}${k.sub_metric ? " · " + k.sub_metric : ""}`] as [string, string])];
@@ -154,8 +222,14 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
     const brandOpts: [string, string][] = [...active.map((b) => [b.id, b.display_name] as [string, string]), ...(isAdmin ? [["none", "Unassigned brand"] as [string, string]] : [])];
     if (!brandOpts.length) { replace(addWrap, msg("notice", isAdmin ? "Add a brand on the Brands screen first." : "You have no assigned brands yet. Ask an administrator.")); addWrap.className = "add-wrap open"; return; }
     const start = state.brand !== "all" && brandOpts.some(([v]) => v === state.brand) ? state.brand : brandOpts[0][0];
-    const fBrand = select(brandOpts, start), fAssignee = h("select"), fKpi = h("select");
-    const fType = select(TYPES, "adhoc"), fRepeat = select(REPEATS, ""), fDue = h("input", { type: "date" }), fNote = h("input", { type: "text", placeholder: "Optional context…", maxlength: "2000" });
+    const fBrand = select(brandOpts, start), fAssignee = h("select", { class: "f-assignee" }), fKpi = h("select");
+    const fType = select(TYPES, "adhoc", { class: "f-type" }), fNote = h("input", { type: "text", placeholder: "Optional context…", maxlength: "2000" });
+    const sched = scheduleFields({ recurrence: null, days: null, start: null, until: null }, "Due date (start date if repeating)");
+    // New Routine tasks default to a weekly schedule starting today, on today's weekday.
+    fType.addEventListener("change", () => {
+      if (fType.value === "routine" && !sched.fRepeat.value) { sched.fRepeat.value = "weekly"; if (!sched.fStart.value) sched.fStart.value = ctx.today; sched.sync(); }
+    });
+    sched.fRepeat.addEventListener("change", () => { if (sched.fRepeat.value && !sched.fStart.value) { sched.fStart.value = ctx.today; sched.sync(); } });
     const fTitle = h("input", { type: "text", placeholder: "What needs to be done?", maxlength: "300" });
     const fBulk = h("textarea", { placeholder: "One task per line (up to 50)" });
     let mode: "single" | "bulk" = "single";
@@ -165,17 +239,17 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
     async function refreshAssignees() {
       if (!isAdmin) return refreshKpis();
       const r = await api(`/people-assignable?brand=${fBrand.value}`);
-      const prev = fAssignee.value;
-      replace(fAssignee, ...r.items.map((p: any) => h("option", { value: p.id, selected: p.id === prev }, p.display_name + (p.status === "pending" ? " (invited)" : ""))));
+      const prev = fAssignee.value || (state.person !== "all" ? state.person : "");
+      replace(fAssignee, ...(r.items.length ? r.items.map((p: any) => h("option", { value: p.id, selected: p.id === prev }, p.display_name + (p.status === "pending" ? " (invited)" : "")))
+        : [h("option", { value: "" }, "No staff with access to this brand")]));
       await refreshKpis();
     }
     async function refreshKpis() { replace(fKpi, ...(await kpiOptions(isAdmin ? fAssignee.value : me.id, fBrand.value)).map(([v, l]) => h("option", { value: v }, l))); }
     fBrand.addEventListener("change", refreshAssignees);
     fAssignee.addEventListener("change", refreshKpis);
-    fRepeat.addEventListener("change", () => { if (fRepeat.value && !fDue.value) fDue.value = ctx.today; });
     async function save() {
-      const base = { brand_id: fBrand.value === "none" ? null : fBrand.value, ...(isAdmin ? { assignee_id: fAssignee.value } : {}), type: fType.value,
-        recurrence: fRepeat.value || null, due_date: fDue.value || null, note: fNote.value.trim() || null, kpi_id: fKpi.value || null };
+      const base = { brand_id: fBrand.value === "none" ? null : fBrand.value, ...(isAdmin ? { assignee_id: fAssignee.value || undefined } : {}), type: fType.value,
+        ...sched.value(), note: fNote.value.trim() || null, kpi_id: fKpi.value || null };
       const ok = await attempt(err, () => mode === "single"
         ? api("/tasks", { method: "POST", json: { title: fTitle.value.trim(), ...base } })
         : api("/tasks/bulk", { method: "POST", json: { titles: fBulk.value.split("\n").map((s) => s.trim()).filter(Boolean), ...base } }));
@@ -183,9 +257,9 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
     }
     replace(addWrap,
       h("div", { class: "row" }, h("div", { class: "add-ttl grow" }, isAdmin ? "Assign task" : "Add my task"), tabSingle, tabBulk),
-      isAdmin ? h("div", { class: "fg" }, field("Assign to", fAssignee)) : null,
-      h("div", { class: "fg" }, field("Brand", fBrand)),
-      h("div", { class: "fg fg3" }, field("Type", fType), field("Repeat", fRepeat), field("Due date (first due date if repeating)", fDue)),
+      isAdmin ? h("div", { class: "fg" }, field("Assign to (staff)", fAssignee)) : null,
+      h("div", { class: "fg fg2" }, field("Brand", fBrand), field("Type", fType)),
+      sched.node,
       h("div", { class: "fg fg2" }, field("Link to EOS KPI", fKpi), field("Note", fNote)),
       single, bulk, err,
       h("div", { class: "row-end" }, h("button", { class: "btn-g", on: { click: closeAdd } }, "Cancel"), h("button", { class: "btn-p", on: { click: save } }, "Save")));
@@ -196,11 +270,29 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
   function closeAdd() { addWrap.className = "add-wrap"; clear(addWrap); }
 
   // ------------------------------------------------------------------ edit and detail
-  async function openEdit(t: any) {
+  async function openEdit(id: string) {
+    let t: any;
+    try { t = (await api(`/tasks/${id}`)).task; } catch (e) { alert(errorText(e)); return; }
     const err = h("div"), notices = h("div");
     const fTitle = h("input", { type: "text", value: t.title, maxlength: "300" }), fNote = h("textarea", { maxlength: "2000" });
     fNote.value = t.note ?? "";
-    const fType = select(TYPES, t.type), fRepeat = select(REPEATS, t.recurrence ?? ""), fDue = h("input", { type: "date", value: t.due_date ?? "" }), fUntil = h("input", { type: "date", value: t.recurrence_until ?? "" });
+    const fType = select(TYPES, t.type);
+    const started = !!t.recurrence && !!t.due_date && t.due_date < ctx.today;
+    const days = t.recurrence === "weekly" ? (t.recurrence_days ?? (t.due_date ? [isoWeekday(t.due_date)] : null)) : null;
+    const sched = scheduleFields({ recurrence: t.recurrence, days, start: t.due_date, until: t.recurrence_until }, t.recurrence ? "Start date" : "Due date");
+    const original = JSON.stringify([t.recurrence ?? null, days]);
+    // Changing the rule or weekdays of a running series takes effect from a date (today or later); the series up
+    // to the day before keeps its occurrences, completions and ownership.
+    const onScheduleChange = () => {
+      if (!started) return;
+      const changed = JSON.stringify([sched.fRepeat.value || null, sched.days()]) !== original;
+      if (changed && sched.fStart.value < ctx.today) { sched.fStart.value = ctx.today; sched.sync(); }
+      // An ended series restarts without its old end date (the continuation never inherits it).
+      if (changed && sched.fUntil.value && sched.fUntil.value < sched.fStart.value) sched.fUntil.value = "";
+      replace(sched.startLabelEl, changed ? "Takes effect from" : "Start date");
+    };
+    sched.fRepeat.addEventListener("change", onScheduleChange);
+    sched.node.querySelectorAll<HTMLInputElement>(".weekday-pick input").forEach((b) => b.addEventListener("change", onScheduleChange));
     const adminFields = h("div");
     let fBrand: HTMLSelectElement | null = null, fAssignee: HTMLSelectElement | null = null, fKpi: HTMLSelectElement | null = null;
     if (isAdmin) {
@@ -208,7 +300,7 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
       fBrand = select(opts, t.brand?.id ?? "none"); fAssignee = h("select"); fKpi = h("select");
       const fillAssignees = async () => {
         const r = await api(`/people-assignable?brand=${fBrand!.value}`);
-        const list = r.items.some((p: any) => p.id === t.assignee.id) ? r.items : [{ id: t.assignee.id, display_name: t.assignee.name + (t.assignee.archived ? " (archived)" : " (no access)") }, ...r.items];
+        const list = r.items.some((p: any) => p.id === t.assignee.id) ? r.items : [{ id: t.assignee.id, display_name: t.assignee.name + (t.assignee.archived ? " (archived)" : " (current)") }, ...r.items];
         replace(fAssignee!, ...list.map((p: any) => h("option", { value: p.id, selected: p.id === t.assignee.id }, p.display_name)));
         replace(fKpi!, ...(await kpiOptions(fAssignee!.value, fBrand!.value)).map(([v, l]) => h("option", { value: v, selected: v === (t.kpi?.id ?? "") }, l)));
       };
@@ -219,16 +311,15 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
     }
     const close = modal("Edit task", [
       h("div", { class: "fg" }, field("Task title", fTitle)),
-      h("div", { class: "fg fg2" }, field("Type", fType), field("Repeat", fRepeat)),
-      h("div", { class: "fg fg2" }, field(t.recurrence ? "First due date" : "Due date", fDue), field("Repeat until (optional)", fUntil)),
-      t.recurrence ? h("div", { class: "note-line" }, "Changing the repeat rule or first date of a series that already started ends it yesterday and continues as a new series; past completions stay as they are. Set “Repeat until” to stop a series.") : null,
+      h("div", { class: "fg fg2" }, field("Type", fType), h("div", null, h("div", { class: "fl" }, "Current schedule"), h("div", { class: "sched-now" }, t.schedule ? `${t.schedule} · from ${fmtDate(t.due_date)}${t.recurrence_until ? " until " + fmtDate(t.recurrence_until) : ""}` : "No repeat"))),
+      sched.node,
+      started ? h("div", { class: "note-line" }, "This series has started. A new rule or weekdays take effect from the date you choose (today or later); earlier occurrences, their completions and ownership stay as they are. Set an end date to stop the series.") : null,
       h("div", { class: "fg" }, field("Note", fNote)),
       adminFields, notices, err,
       h("div", { class: "row-end" }, h("button", { class: "btn-g", on: { click: () => close() } }, "Cancel"), h("button", { class: "btn-p", on: { click: save } }, "Save changes")),
     ], { wide: true });
     async function save() {
-      const body: Record<string, unknown> = { version: t.version, title: fTitle.value.trim(), note: fNote.value.trim() || null, type: fType.value, due_date: fDue.value || null,
-        recurrence: fRepeat.value || null, recurrence_until: fRepeat.value ? fUntil.value || null : null };
+      const body: Record<string, unknown> = { version: t.version, title: fTitle.value.trim(), note: fNote.value.trim() || null, type: fType.value, ...sched.value() };
       if (isAdmin && fBrand && fAssignee && fKpi) Object.assign(body, { brand_id: fBrand.value === "none" ? null : fBrand.value, assignee_id: fAssignee.value, kpi_id: fKpi.value || null });
       try {
         const r = await api(`/tasks/${t.id}`, { method: "PATCH", json: body });
@@ -245,24 +336,28 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
     try { d = await api(`/tasks/${id}`); } catch (e) { alert(errorText(e)); location.hash = "#/tasks"; return; }
     const t = d.task;
     const occBox = h("div");
-    // Each occurrence is labelled with its owner; only occurrences this person may complete get a control.
+    // Each occurrence is labelled with its owner (who is credited) and, when different, who ticked it.
     async function renderOccurrences() {
       if (!t.recurrence) return;
       const occ = (await api(`/tasks/${id}/occurrences`).catch(() => ({ items: [] }))).items;
+      const status = (o: any) => o.done ? h("span", { class: "green" }, "Done") : o.closed ? h("span", { class: "grey" }, "Closed") : h("span", { class: o.overdue ? "red" : "grey" }, o.overdue ? "Overdue" : "Open");
       replace(occBox, occ.length ? h("div", null, h("div", { class: "pt" }, "Occurrences (last and next 30 days)"),
         h("table", { class: "tbl occ-tbl" }, h("tbody", null, ...occ.map((o: any) => h("tr", { "data-date": o.date },
-          h("td", null, fmtDate(o.date)),
+          h("td", null, `${DAYS[isoWeekday(o.date) - 1]} ${fmtDate(o.date)}`),
           h("td", null, o.owner?.name ?? "", o.owner?.archived ? h("span", { class: "arch-label" }, "Archived") : null),
-          h("td", null, o.done ? h("span", { class: "green" }, "Done") : h("span", { class: o.overdue ? "red" : "grey" }, o.overdue ? "Overdue" : "Open")),
-          h("td", null, o.can_complete ? h("button", { class: "btn-sm occ-toggle", on: { click: async () => {
+          h("td", null, status(o)),
+          h("td", { class: "muted" }, o.done && o.completed_by && o.completed_by !== o.owner?.name ? `ticked by ${o.completed_by}` : ""),
+          h("td", null, o.can_complete && !o.closed ? h("button", { class: "btn-sm occ-toggle", on: { click: async () => {
             try { await api(`/tasks/${id}/completion`, { method: "POST", json: { done: !o.done, occurrence_date: o.date } }); } catch (e) { alert(errorText(e)); }
             await renderOccurrences(); loadAll();
           } } }, o.done ? "Mark not done" : "Mark done") : h("span", { class: "muted occ-blocked", title: blockedText(o) }, o.completion_blocked === "too_far_ahead" ? blockedText(o) : "—"))))))) : null);
     }
     await renderOccurrences();
     modal(t.title, [
-      h("div", { class: "tm" }, h("span", { class: "ac" }, t.assignee.name), t.brand ? h("span", { class: "b brand-badge" }, t.brand.name) : h("span", { class: "b brand-badge" }, "Unassigned brand"),
-        t.recurrence ? h("span", { class: "rc" }, REPEAT_LABEL[t.recurrence]) : null, t.due_date ? h("span", { class: "mt" }, `Due ${fmtDate(t.due_date)}`) : null,
+      h("div", { class: "tm" }, h("span", { class: "ac" }, t.assignee.name), t.assignee.archived ? h("span", { class: "arch-label" }, "Archived") : null,
+        t.brand ? h("span", { class: "b brand-badge" }, t.brand.name) : h("span", { class: "b brand-badge" }, "Unassigned brand"),
+        t.schedule ? h("span", { class: "rc sched-detail" }, `↻ ${t.schedule} · from ${fmtDate(t.due_date)}${t.recurrence_until ? " until " + fmtDate(t.recurrence_until) : ""}`) : t.due_date ? h("span", { class: "mt" }, `Due ${fmtDate(t.due_date)}`) : null,
+        t.closed ? h("span", { class: "arch-label" }, "Closed") : null,
         h("span", { class: "mt" }, `Created ${fmtDate(t.operational_date)} by ${t.creator.name}`)),
       t.note ? h("p", { class: "tn tn-full" }, t.note) : null,
       typeof d.plan_url === "string" && /^https:\/\//.test(d.plan_url) ? h("div", { class: "note-line plan-link" }, "From a marketing plan: ",
@@ -271,20 +366,24 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
       occBox,
       h("div", { class: "pt" }, "History"),
       h("div", null, ...d.history.map((x: any) => h("div", { class: "note-line" }, `${fmtTime(x.at)} · ${x.actor ?? "Import"} · ${x.action.replace(/_/g, " ")}`))),
-      h("div", { class: "row-end" }, t.can_edit ? h("button", { class: "btn-g", on: { click: () => openEdit(t) } }, "Edit") : null),
+      h("div", { class: "row-end" }, t.can_edit ? h("button", { class: "btn-g", on: { click: () => openEdit(t.id) } }, "Edit") : null),
     ], { wide: true, onClose: () => { if (location.hash.startsWith("#/tasks/")) history.replaceState(null, "", "#/tasks"); } });
   }
 
   // ------------------------------------------------------------------ right panel
-  async function loadSummary() {
-    try {
-      const s = await api(`/summaries?period=today&brand=${state.brand}&person=${state.person}`);
-      replace(summaryArea, statBlock(s), splitBlock(s));
-      if (readsAll && teamArea) replace(teamArea, ...(s.by_person ?? []).map((p: any) => h("div", { class: "split" },
-        h("span", { class: "row" }, h("span", { class: "av" }, initials(p.name)), p.name, p.archived ? h("span", { class: "arch-label" }, "Archived") : null),
-        h("span", null, h("span", { class: "grey" }, `${p.pending} pending · `), h("span", { class: "green" }, `${p.done} done`)))));
-      if (readsAll && s.by_person && !s.by_person.length) replace(teamArea, h("div", { class: "empty" }, "No team activity."));
-    } catch (e) { replace(summaryArea, msg("error", errorText(e))); }
+  function renderWeekSummary(w: any) {
+    const s = w.summary;
+    replace(summaryTitle, w.week.is_current ? `This week · ${fmtDate(w.week.start)} – ${fmtDate(w.week.end)}` : `Week · ${fmtDate(w.week.start)} – ${fmtDate(w.week.end)}`);
+    replace(summaryArea, statBlock(s), splitBlock(s),
+      h("div", { class: "split wk-overdue" }, h("span", { class: "grey" }, "Overdue (all weeks)"), h("span", { class: s.overdue ? "red" : "green" }, String(s.overdue))),
+      h("div", { class: "split wk-undated" }, h("span", { class: "grey" }, "No due date"), h("span", null, String(s.undated))));
+    if (readsAll) {
+      const rows = (w.workload ?? []).map((p: any) => h("div", { class: "split wl-row", "data-person": p.id },
+        h("span", { class: "row" }, h("span", { class: "av" }, initials(p.name)), p.name, p.invited ? h("span", { class: "arch-label" }, "Invited") : null),
+        h("span", null, h("span", { class: "grey" }, `${p.pending} pending · `), h("span", { class: "green" }, `${p.done} done`), p.overdue ? h("span", { class: "red" }, ` · ${p.overdue} late`) : null)));
+      replace(teamArea, ...(rows.length ? rows : [h("div", { class: "empty" }, "No active staff.")]),
+        h("div", { class: "note-line" }, "Active staff, for the selected week and brand, type and search filters."));
+    }
   }
   async function loadAnalytics() {
     const chip = (p: string, l: string) => h("button", { class: "fchip" + (state.period === p ? " on" : ""), on: { click: () => { state.period = p; loadAnalytics(); } } }, l);
@@ -303,7 +402,7 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
         h("div", { class: "note-line" }, "Each occurrence of a repeating task counts once. Task completion is not a KPI result."));
     } catch (e) { replace(analyticsArea, ...head, msg("error", errorText(e))); }
   }
-  function statBlock(s: any, doneLabel = "Tasks done") {
+  function statBlock(s: any, doneLabel = "Done") {
     const total = s.done + s.pending;
     const bar = h("div", { class: "bar" }, h("span"));
     (bar.firstChild as HTMLElement).style.width = total ? `${Math.round((s.done / total) * 100)}%` : "0%";
@@ -390,7 +489,7 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
   }
 
   // ------------------------------------------------------------------ boot
-  async function loadAll() { await Promise.all([loadTasks(), loadSummary(), loadKpis(), loadAnalytics()]); }
+  async function loadAll() { await Promise.all([loadWeek(), loadKpis(), loadAnalytics()]); }
   try {
     [brands, people] = await Promise.all([api("/brands").then((r) => r.items), api("/directory").then((r) => r.items)]);
   } catch (e) { replace(root, h("div", { class: "page" }, msg("error", errorText(e)))); return; }
@@ -398,6 +497,7 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
   await loadAll();
   const m = /^#\/tasks\/([0-9a-f-]{36})$/.exec(location.hash);
   if (m) openDetail(m[1]);
+  void lastWeek;
   return { openDetail };
 }
 

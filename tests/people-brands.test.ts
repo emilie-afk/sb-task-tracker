@@ -28,7 +28,8 @@ describe("people", () => {
   it("role and brand changes take effect on the next request and are recorded", async () => {
     const id = await person("rosa@example.test", "Rosa Staff", "staff", "active", [A]);
     const rosa = await login(id);
-    const t = await task(admin, { title: "Beta work", brand_id: B, assignee_id: admin.id });
+    const pia = await person("pia@example.test", "Pia Staff", "staff", "active", [B]);
+    const t = await task(admin, { title: "Beta work", brand_id: B, assignee_id: pia });
     expect((await call(rosa, "GET", `/tasks/${t.id}`)).status).toBe(404);
     let p = await getPerson(id);
     await call(admin, "PATCH", `/people/${id}`, { version: p.version, brand_ids: [A, B] });
@@ -53,7 +54,8 @@ describe("people", () => {
     const p = await getPerson(id);
     // One reassignment is valid, one targets a person without brand access (fails), access is revoked anyway.
     const noAccess = await person("noaccess@example.test", "No Access", "staff", "active", [B]);
-    const r = await call(admin, "POST", `/people/${id}/archive`, { version: p.version, reassign: [{ task_id: t1.id, assignee_id: admin.id }, { task_id: t2.id, assignee_id: noAccess }] });
+    const helper = await person("hal@example.test", "Hal Helper", "staff", "active", [A]);
+    const r = await call(admin, "POST", `/people/${id}/archive`, { version: p.version, reassign: [{ task_id: t1.id, assignee_id: helper }, { task_id: t2.id, assignee_id: noAccess }] });
     expect(r.status).toBe(200);
     expect(r.body.archived).toBe(true);
     expect(r.body.sessions_revoked).toBe(1);
@@ -64,7 +66,7 @@ describe("people", () => {
     const dt = (await call(admin, "GET", `/tasks/${done.id}`)).body.task;
     expect(dt.assignee).toMatchObject({ id, name: "Leo Leaving", archived: true });
     expect((await call(admin, "GET", `/tasks/${t2.id}`)).body.task.assignee.id).toBe(id);
-    expect((await call(admin, "GET", `/tasks/${t1.id}`)).body.task.assignee.id).toBe(admin.id);
+    expect((await call(admin, "GET", `/tasks/${t1.id}`)).body.task.assignee.id).toBe(helper);
     // Archived people cannot receive new assignments and drop out of assignment lists and default summaries.
     expect((await call(admin, "POST", "/tasks", { title: "to Leo", brand_id: A, assignee_id: id })).status).toBe(409);
     expect((await call(admin, "POST", `/tasks/${t1.id}/reassign`, { assignee_id: id })).status).toBe(409);
@@ -189,9 +191,10 @@ describe("task brand changes", () => {
     expect(r.status).toBe(409);
     expect(r.body.error.code).toBe("assignee_lacks_brand_access");
     expect((await q("select count(*)::int n from user_brand_access where user_id = $1 and brand_id = $2", [s, B]))[0].n).toBe(0);
-    const both = await call(admin, "PATCH", `/tasks/${t.id}`, { version: t.version, brand_id: B, assignee_id: admin.id });
+    const beta = await person("bea@example.test", "Bea Staff", "staff", "active", [B]);
+    const both = await call(admin, "PATCH", `/tasks/${t.id}`, { version: t.version, brand_id: B, assignee_id: beta });
     expect(both.status).toBe(200);
-    expect(both.body.task).toMatchObject({ brand: { id: B }, assignee: { id: admin.id } });
+    expect(both.body.task).toMatchObject({ brand: { id: B }, assignee: { id: beta } });
   });
   it("an incompatible KPI link is cleared with a visible explanation, in the same transaction", async () => {
     const s = await person("di@example.test", "Di Staff", "staff", "active", [A, B]);
