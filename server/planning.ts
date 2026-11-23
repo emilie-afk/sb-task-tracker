@@ -5,6 +5,8 @@
 //   GET   /api/planning/v1/tasks?keys=<k1>,<k2>          current state of tasks created from plans
 //   PATCH /api/planning/v1/tasks/<key>/due-date          change one task's due date (optimistic version)
 //   POST  /api/planning/v1/tasks/<key>/complete          mark one task done (the task editor's completion rules)
+//   POST  /api/planning/v1/slack-links                   link a waiting dashboard item to the task the Slack intake
+//                                                        already created for the same Slack request (never creates)
 //   Header: x-tracker-planning-key: <dedicated planning secret>
 //
 // - Its own random credential (stored hashed, compared in constant time), separate from the reporting credential.
@@ -31,6 +33,8 @@ import { prepareCreate, insertTask } from "./routes/tasks";
 import { appOrigin, dashboardOrigin } from "./config";
 import { todayVN } from "../shared/dates";
 import type { Session } from "./auth";
+import type pg from "pg";
+import { slackSource, lockMessages, claimedTask, claim, type SlackSource, type Workflow } from "./slackSources";
 
 export const PLANNING_HEADER = "x-tracker-planning-key";
 const KEY_RE = /^[A-Za-z0-9_.:-]{8,120}$/;
@@ -104,8 +108,45 @@ const createSchema = z.object({
   // Where the task comes from on the dashboard: a marketing plan (linked back to it) or Emilie's private review queue
   // (no link back: the queue and its sources are private to the dashboard). plan_id is then the suggestion's id.
   origin: z.enum(["plan", "review"]).optional(),
+  // The Slack request(s) this task comes from (identity only: channel id, message ts, the dashboard's request id) and
+  // which dashboard workflow found it. A task the Slack intake already created for the same request is linked
+  // instead of creating a second one.
+  slack_sources: z.array(slackSource).max(10).optional(),
+  source_workflow: z.enum(["review", "corporate", "plan"]).optional(),
 }).strict();
 export const CREATE_MAX_AGE_MS = 60_000;
+
+const linkSchema = z.object({
+  idempotency_key: z.string().regex(KEY_RE),
+  plan_id: uuid,
+  origin: z.enum(["plan", "review"]).optional(),
+  slack_sources: z.array(slackSource).min(1).max(10),
+  source_workflow: z.enum(["review", "corporate", "plan"]).optional(),
+}).strict();
+
+/**
+ * The task another workflow (usually the Slack intake) already created for these Slack requests, if this dashboard
+ * item may link to it: exactly one claimed task, in this credential's scope, not linked to another dashboard item.
+ * Call under lockMessages.
+ */
+async function linkableClaim(c: pg.PoolClient, sources: SlackSource[], allowed: string[]) {
+  const held = await claimedTask(c, sources);
+  if (held.kind === "none") return { task: null, reason: "not_found" as const };
+  if (held.kind === "ambiguous") return { task: null, reason: "ambiguous" as const };
+  const ok = (await c.query(
+    `select 1 from tasks t join brands b on b.id = t.brand_id
+      where t.id = $1 and t.deleted_at is null and b.status = 'active' and b.reporting_enabled and b.dashboard_business_id = any($2::text[])
+        and not exists (select 1 from task_plan_links l where l.task_id = t.id)`, [held.task_id, allowed])).rowCount;
+  return ok ? { task: held.task_id, reason: null } : { task: null, reason: "not_linkable" as const };
+}
+async function linkToDashboard(c: pg.PoolClient, taskId: string, b: { idempotency_key: string; plan_id: string; origin?: string; slack_sources?: SlackSource[] }, wf: Workflow, actorId: string) {
+  await c.query("insert into task_plan_links (task_id, idempotency_key, plan_id, origin) values ($1,$2,$3,$4)", [taskId, b.idempotency_key, b.plan_id, b.origin ?? "plan"]);
+  await history(c, taskId, actorId, "linked_from_dashboard", { source: "marketing_dashboard", workflow: wf });
+}
+// Test hook: a pause after the claim lookup of a create, to prove the message lock serializes concurrent deliveries.
+let planHooks: { afterSourceLookup?: () => Promise<void> } = {};
+export function _setPlanningSourceHooksForTests(h: typeof planHooks | null) { planHooks = h ?? {}; }
+const workflowOf = (b: { origin?: string; source_workflow?: string }): Workflow => (b.source_workflow ?? (b.origin === "review" ? "review" : "plan")) as Workflow;
 
 // Test hooks: a pause before the key lock, and the clock used for request freshness.
 let hooks: { beforeLock?: (key: string) => Promise<void> } = {};
@@ -165,11 +206,25 @@ export async function handlePlanning(req: Request, path: string): Promise<Respon
         // Replaying a key returns its task only within this credential's businesses; nothing about it is sent otherwise.
         if (!existing.in_scope) throw new HttpError(409, "key_unavailable", "That assignment id is already used outside this credential's businesses.");
         if (existing.plan_id !== b.plan_id) throw new HttpError(409, "key_in_use", "That assignment id already belongs to another plan.");
-        return { created: false as const };
+        return { created: false as const, linked: false };
       }
       // From here on no task exists for this key (checked under the key's lock, whatever its business).
       await c.query("savepoint plan_create");
       try {
+        // The same Slack request may already be a task the Slack intake created: link it, never create a second one.
+        // One Slack request, one task: under the message's lock (shared with the Slack intake), link to the task
+        // already created for this request, or refuse when it is ambiguous (no request number) or not linkable.
+        const sources = b.slack_sources ?? [];
+        if (sources.length) {
+          await lockMessages(c, sources);
+          const found = await linkableClaim(c, sources, cred.allowed_business_ids);
+          await planHooks.afterSourceLookup?.();
+          if (found.task) { await linkToDashboard(c, found.task, b, workflowOf(b), actor.userId); return { created: false as const, linked: true }; }
+          if (found.reason === "ambiguous")
+            throw new HttpError(409, "needs_review", "This Slack message already has tasks in Task Tracker and this item does not say which of its requests it is; nothing was created. Check it in Task Tracker.");
+          if (found.reason === "not_linkable")
+            throw new HttpError(409, "already_in_tracker", "This Slack request is already a Task Tracker task that cannot be linked here (linked to another dashboard item, or a brand outside this credential); nothing was created.");
+        }
         const brand = (await c.query("select status, reporting_enabled, dashboard_business_id from brands where id = $1", [b.brand_id])).rows[0];
         if (!brand || !brand.reporting_enabled || !cred.allowed_business_ids.includes(brand.dashboard_business_id))
           throw new HttpError(422, "brand_not_allowed", "That brand is not available to marketing plans (it must be mapped to an allowed dashboard business with reporting on).");
@@ -181,9 +236,10 @@ export async function handlePlanning(req: Request, path: string): Promise<Respon
         const id = await insertTask(c, actor, b.title, assignee, fields);
         const origin = b.origin ?? "plan";
         await c.query("insert into task_plan_links (task_id, idempotency_key, plan_id, origin) values ($1,$2,$3,$4)", [id, b.idempotency_key, b.plan_id, origin]);
+        await claim(c, id, workflowOf(b), sources);
         // Review-queue tasks record no link to their private source.
         if (origin === "plan") await history(c, id, actor.userId, "linked_to_plan", { source: "marketing_planning", plan_id: b.plan_id });
-        return { created: true as const };
+        return { created: true as const, linked: false };
       } catch (e) {
         if (!(e instanceof HttpError) || e.status < 400 || e.status >= 500) throw e;
         // Refused with no task for this key: fence off this request and every earlier one (its own sent_at, and the
@@ -200,7 +256,32 @@ export async function handlePlanning(req: Request, path: string): Promise<Respon
     });
     if ("refused" in result) throw result.refused;   // the fence is committed before the refusal is answered
     const state = await taskState(b.idempotency_key, cred.allowed_business_ids);
-    return json({ created: result.created, task: state }, result.created ? 201 : 200);
+    return json({ created: result.created, linked: result.linked, task: state }, result.created ? 201 : 200);
+  }
+
+  // Links a dashboard item still waiting for review to the task the Slack intake already created for the same
+  // request (so the item shows as in Task Tracker and nobody sends it again). Never creates a task.
+  if (path === "/planning/v1/slack-links" && req.method === "POST") {
+    const b = parse(linkSchema, await readJson(req));
+    const out = await tx(async (c) => {
+      await c.query("select pg_advisory_xact_lock(hashtextextended($1, 7))", [b.idempotency_key]);
+      const existing = (await c.query(
+        `select l.plan_id, coalesce(b.dashboard_business_id = any($2::text[]), false) in_scope
+           from task_plan_links l join tasks t on t.id = l.task_id left join brands b on b.id = t.brand_id where l.idempotency_key = $1`,
+        [b.idempotency_key, cred.allowed_business_ids])).rows[0];
+      if (existing) {
+        if (!existing.in_scope) throw new HttpError(409, "key_unavailable", "That assignment id is already used outside this credential's businesses.");
+        if (existing.plan_id !== b.plan_id) throw new HttpError(409, "key_in_use", "That assignment id already belongs to another plan.");
+        return { linked: true, reason: null };
+      }
+      await lockMessages(c, b.slack_sources);
+      const found = await linkableClaim(c, b.slack_sources, cred.allowed_business_ids);
+      if (!found.task) return { linked: false, reason: found.reason };
+      await linkToDashboard(c, found.task, b, workflowOf(b), actor.userId);
+      return { linked: true, reason: null };
+    });
+    if (!out.linked) return json({ linked: false, reason: out.reason });
+    return json({ linked: true, task: await taskState(b.idempotency_key, cred.allowed_business_ids) });
   }
 
   const m = /^\/planning\/v1\/tasks\/([A-Za-z0-9_.:-]{8,120})\/due-date$/.exec(path);
@@ -242,7 +323,7 @@ export async function handlePlanning(req: Request, path: string): Promise<Respon
     return json({ task: await taskState(done[1], cred.allowed_business_ids) });
   }
 
-  const known = path === "/planning/v1/directory" || path === "/planning/v1/tasks" || !!m || !!done;
+  const known = path === "/planning/v1/directory" || path === "/planning/v1/tasks" || path === "/planning/v1/slack-links" || !!m || !!done;
   throw known ? new HttpError(405, "method_not_allowed", "Method not allowed.") : new HttpError(404, "not_found", "No such endpoint.");
 }
 

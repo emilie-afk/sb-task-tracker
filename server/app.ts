@@ -11,6 +11,7 @@ import { appOrigin } from "./config";
 import { hit, accountKey, RATE } from "./rateLimit";
 import { handleReporting } from "./reporting";
 import { handlePlanning } from "./planning";
+import { handleSlackIntake } from "./slackIntake";
 import { registerTasks } from "./routes/tasks";
 import { registerWeek } from "./routes/week";
 import { registerPeople } from "./routes/people";
@@ -48,6 +49,7 @@ export function createApp() {
       if (path === "/auth/callback" && req.method === "GET") return await handleCallback(req);
       if (path.startsWith("/reporting/")) return await handleReporting(req, path);
       if (path.startsWith("/planning/")) return await handlePlanning(req, path);
+      if (path.startsWith("/slack-intake/")) return await handleSlackIntake(req, path);
 
       const session = await readSession(req);
       const mutation = !["GET", "HEAD"].includes(req.method);

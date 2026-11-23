@@ -22,7 +22,7 @@ import { todayVN, addDays, weekStart, isIsoDate } from "../../shared/dates";
 import { seriesOccurrences, scheduleText } from "../../shared/recurrence";
 import { loadAssignments, ownerOn, oneTimeOwner } from "../ownership";
 import { occurrenceCompletion } from "../tasks";
-import { TASK_SELECT } from "./tasks";
+import { TASK_SELECT, slackInfo } from "./tasks";
 
 export const OVERDUE_LOOKBACK_DAYS = 14;
 const MAX_TASKS = 3000;
@@ -61,7 +61,7 @@ function taskInfo(s: Session, r: any) {
     assignee: { id: r.assignee_id, name: r.assignee_name, archived: r.assignee_status === "archived" },
     due_date: r.due_date, recurrence: r.recurrence, recurrence_days: r.recurrence_days, recurrence_until: r.recurrence_until, schedule: scheduleText(r),
     kpi: r.kpi_id ? { id: r.kpi_id, metric: r.kpi_metric, sub_metric: r.kpi_sub_metric, archived: !!r.kpi_archived_at } : null,
-    legacy_kpi_label: r.legacy_kpi_label, can_edit: canEditTask(s, r),
+    legacy_kpi_label: r.legacy_kpi_label, can_edit: canEditTask(s, r), slack: slackInfo(r),
   };
 }
 

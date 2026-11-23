@@ -280,6 +280,69 @@ export async function integrationsView(root: HTMLElement, _ctx: Ctx) {
           e3, secretBox));
     } catch (e) { replace(planningBox, msg("error", errorText(e))); }
   }
+  const slackBox = h("div");
+  // Slack task intake: a scheduled reader creates tasks from @mentions and completes them from the owner's replies.
+  const REVIEW_KIND: Record<string, string> = { brand_unclear: "Brand unclear", ambiguous_reply: "Ambiguous reply", edit_conflict: "Edit conflict",
+    source_deleted: "Slack message deleted", refused: "Refused", possible_duplicate: "Possible duplicate", needs_check: "Check assignment or instructions" };
+  async function loadSlack() {
+    try {
+      const [sl, ppl, br] = await Promise.all([api("/integrations/slack"), api("/people?include_archived=0"), api("/brands?include_archived=0")]);
+      const staff = ppl.items.filter((p: any) => p.role === "staff" && p.status !== "archived");
+      const brandOpts: [string, string][] = [["", "No brand (admin review)"], ...br.items.map((b: any) => [b.id, b.display_name] as [string, string])];
+      const secretBox = h("div"), e4 = h("div"), e5 = h("div"), e6 = h("div");
+      const slackId = h("input", { type: "text", placeholder: "Slack member ID (U…)", "aria-label": "Slack member ID", maxLength: 16 }) as HTMLInputElement;
+      const personSel = select(staff.map((p: any) => [p.id, p.display_name]), null, { "aria-label": "Tracker person" }) as HTMLSelectElement;
+      const chId = h("input", { type: "text", placeholder: "Channel ID (C…)", "aria-label": "Slack channel ID", maxLength: 16 }) as HTMLInputElement;
+      const chLabel = h("input", { type: "text", placeholder: "Label, e.g. #seo", "aria-label": "Channel label", maxLength: 80 }) as HTMLInputElement;
+      const chBrand = select(brandOpts, "", { "aria-label": "Brand" }) as HTMLSelectElement;
+      const del = (path: string, q: string) => async () => { if (confirm(q)) { await api(path, { method: "DELETE" }).catch((e) => alert(errorText(e))); loadSlack(); } };
+      replace(slackBox, h("h2", { style: "margin-top:24px" }, "Slack task intake"),
+        h("div", { class: "sub" }, "A scheduled reader using the connected Slack account creates tasks from @mentions of linked people and completes them from that person's own replies in the thread. It acts as the administrator who creates this credential, with the same rules as the task editor. Items it is unsure about wait below for review."),
+        h("div", { class: "card" },
+          h("div", { class: "fl" }, "Intake credential"),
+          sl.credential ? h("div", { class: "note-line" }, `Active since ${fmtTime(sl.credential.created_at)} · acts as ${sl.credential.acting_as}${sl.credential.acting_ok ? "" : " (no longer an active administrator: the credential does not work)"} · last used ${sl.credential.last_used_at ? fmtTime(sl.credential.last_used_at) : "never"}`)
+            : h("div", { class: "note-line" }, "None. Slack intake is off."),
+          h("div", { class: "note-line" }, sl.checkpoint_ts ? `Read up to ${fmtTime(new Date(Number(sl.checkpoint_ts.split(".")[0]) * 1000).toISOString())}` : "Monitoring starts when the first credential is created."),
+          h("div", { class: "row" },
+            h("button", { class: "btn-p", on: { click: async () => {
+              if (sl.credential && !confirm("Create a new intake credential? The current one stops working immediately.")) return;
+              await attempt(e4, async () => {
+                const c = await api("/integrations/slack/credential", { method: "POST" });
+                const box = h("input", { type: "text", class: "secret", value: c.secret, readOnly: true, "aria-label": "Slack intake secret" });
+                replace(secretBox, msg("notice", "Copy this secret now into the scheduled reader's private key file. It is not shown again and is not stored here."), box);
+                box.select();
+              });
+            } } }, sl.credential ? "Replace credential" : "Create credential"),
+            sl.credential ? h("button", { class: "btn-sm danger", on: { click: del("/integrations/slack/credential", "Revoke the intake credential? Slack mentions stop creating and completing tasks; existing tasks stay.") } }, "Revoke") : null),
+          e4, secretBox),
+        h("div", { class: "card" },
+          h("div", { class: "fl" }, "Linked people (only linked active staff get tasks)"),
+          sl.people.length ? h("table", { class: "tbl" }, h("tbody", null, ...sl.people.map((p: any) => h("tr", null,
+            h("td", null, p.name, p.status === "archived" ? h("span", { class: "arch-label" }, "Archived") : null), h("td", null, h("code", null, p.slack_user_id)),
+            h("td", null, h("button", { class: "btn-sm danger", on: { click: del(`/integrations/slack/people/${p.slack_user_id}`, `Unlink ${p.name}?`) } }, "Unlink"))))))
+            : h("div", { class: "note-line" }, "Nobody is linked yet."),
+          h("div", { class: "row" }, slackId, personSel, h("button", { class: "btn-sm", on: { click: () => attempt(e5, async () => {
+            await api("/integrations/slack/people", { method: "PUT", json: { slack_user_id: slackId.value.trim(), user_id: personSel.value } }); loadSlack();
+          }) } }, "Link")), e5),
+        h("div", { class: "card" },
+          h("div", { class: "fl" }, "Channel brands (used when a message does not name its brand)"),
+          sl.channels.length ? h("table", { class: "tbl" }, h("tbody", null, ...sl.channels.map((c: any) => h("tr", null,
+            h("td", null, c.label ?? h("code", null, c.channel_id)), h("td", null, c.brand_name ?? h("span", { class: "muted" }, "No brand (admin review)")),
+            h("td", null, h("button", { class: "btn-sm danger", on: { click: del(`/integrations/slack/channels/${c.channel_id}`, "Remove this channel mapping?") } }, "Remove"))))))
+            : h("div", { class: "note-line" }, "No channels mapped. Tasks without a named brand go to review."),
+          h("div", { class: "row" }, chId, chLabel, chBrand, h("button", { class: "btn-sm", on: { click: () => attempt(e6, async () => {
+            await api("/integrations/slack/channels", { method: "PUT", json: { channel_id: chId.value.trim(), label: chLabel.value.trim() || null, brand_id: chBrand.value || null } }); loadSlack();
+          }) } }, "Save")), e6),
+        h("div", { class: "card" },
+          h("div", { class: "fl" }, `Needs review (${sl.reviews.length})`),
+          sl.reviews.length ? h("table", { class: "tbl" }, h("tbody", null, ...sl.reviews.map((x: any) => h("tr", null,
+            h("td", null, REVIEW_KIND[x.kind] ?? x.kind), h("td", null, x.task_title ?? h("span", { class: "muted" }, "No task")),
+            h("td", null, x.note ?? ""), h("td", null, x.permalink ? h("a", { href: x.permalink, target: "_blank", rel: "noopener noreferrer" }, "Slack") : null),
+            h("td", null, fmtTime(x.created_at)),
+            h("td", null, h("button", { class: "btn-sm", on: { click: async () => { await api(`/integrations/slack/review/${x.id}/resolve`, { method: "POST" }).catch((e) => alert(errorText(e))); loadSlack(); } } }, "Resolve"))))))
+            : h("div", { class: "note-line" }, "Nothing to review.")));
+    } catch (e) { replace(slackBox, msg("error", errorText(e))); }
+  }
   async function load() {
     try {
       const r = await api("/integrations/reporting");
@@ -310,8 +373,9 @@ export async function integrationsView(root: HTMLElement, _ctx: Ctx) {
           h("tbody", null, ...r.brands.map((b: any) => h("tr", null, h("td", null, b.name, b.archived ? h("span", { class: "arch-label" }, "Archived") : null),
             h("td", null, b.dashboard_business_id ?? h("span", { class: "muted" }, "Not mapped")), h("td", null, b.included ? h("span", { class: "green" }, b.reason) : h("span", { class: "muted" }, b.reason)))))),
         h("div", { class: "note-line" }, "Change a brand's mapping on the Brands screen."),
-        planningBox);
+        planningBox, slackBox);
       loadPlanning();
+      loadSlack();
     } catch (e) { replace(area, msg("error", errorText(e))); }
   }
   await load();

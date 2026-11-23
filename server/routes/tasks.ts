@@ -19,12 +19,18 @@ import { planLinkFor } from "../planning";
 export const TASK_SELECT = `
   select t.*, b.display_name brand_name, b.color brand_color, b.status brand_status,
          ua.display_name assignee_name, ua.status assignee_status, uc.display_name creator_name,
-         k.metric kpi_metric, k.sub_metric kpi_sub_metric, k.archived_at kpi_archived_at
+         k.metric kpi_metric, k.sub_metric kpi_sub_metric, k.archived_at kpi_archived_at,
+         sl.permalink slack_permalink, (sl.due_inferred and t.due_date is not distinct from sl.synced_due) slack_due_inferred,
+         sl.source_deleted_at slack_source_deleted_at
     from tasks t
     left join brands b on b.id = t.brand_id
     join users ua on ua.id = t.assignee_id
     join users uc on uc.id = t.creator_id
-    left join kpi_definitions k on k.id = t.kpi_id`;
+    left join kpi_definitions k on k.id = t.kpi_id
+    left join slack_task_series sts on sts.task_id = t.id left join slack_task_links sl on sl.task_id = sts.link_task_id`;
+
+/** A Slack-created task: its source message and whether its deadline is still the inferred one. */
+export const slackInfo = (r: any) => r.slack_permalink ? { permalink: r.slack_permalink, due_inferred: !!r.slack_due_inferred, source_deleted: !!r.slack_source_deleted_at } : null;
 
 /** Per-card context: ownership periods, the viewer's occurrence perspective and owner names. */
 export type CardContext = { asg: Map<string, Assignment[]>; names: Map<string, { name: string; archived: boolean }> };
@@ -100,6 +106,7 @@ export function dto(s: Session, r: any, today: string, done: Map<string, string>
     completed_on: r.completed_on,
     kpi: r.kpi_id ? { id: r.kpi_id, metric: r.kpi_metric, sub_metric: r.kpi_sub_metric, archived: !!r.kpi_archived_at } : null,
     legacy_kpi_label: r.legacy_kpi_label,
+    slack: slackInfo(r),
     status: isDone ? "done" : closed ? "closed" : "open",
     closed,
     overdue: closed ? false : r.recurrence ? !!occurrence?.overdue : !isDone && !!r.due_date && r.due_date < today,
@@ -308,6 +315,8 @@ export function registerTasks(r: Router) {
            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
           [newBrand, newAssignee, s.userId, fields.title ?? t.title, "note" in fields ? fields.note || null : t.note, fields.type ?? t.type,
             due ?? today, rec, days, rec ? until : null, t.id, kpi, today])).rows[0];
+        // A series created from a Slack request keeps that request: replies route to the series with the occurrence.
+        await c.query("insert into slack_task_series (task_id, link_task_id) select $2, link_task_id from slack_task_series where task_id = $1", [t.id, nt.id]);
         await history(c, t.id, s.userId, endOld !== t.recurrence_until ? "series_ended" : "series_continued", { ...(endOld !== t.recurrence_until ? { recurrence_until: { from: t.recurrence_until, to: endOld } } : {}), continued_as: nt.id });
         await history(c, nt.id, s.userId, "created", { continues_series: t.id, recurrence: rec, recurrence_days: days, due_date: due ?? today });
         return { id: nt.id, split_from: t.id, notices };

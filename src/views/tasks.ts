@@ -167,6 +167,15 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
       completed,
       h("div", { class: "note-line" }, `Overdue looks back ${w.overdue_lookback_days} days for repeating tasks; older occurrences stay in their own weeks. Unfinished work of archived people is closed and not shown.`));
   }
+  const SLACK_LINK = /^https:\/\/[a-z0-9-]+\.slack\.com\/archives\//;
+  /** "From Slack" link, inferred-deadline and deleted-source chips for tasks created by the Slack intake. */
+  function slackChips(t: any) {
+    const sl = t.slack;
+    if (!sl || typeof sl.permalink !== "string" || !SLACK_LINK.test(sl.permalink)) return [];
+    return [h("a", { class: "mt slack-link", href: sl.permalink, target: "_blank", rel: "noopener noreferrer", title: "Open the Slack message" }, "From Slack"),
+      sl.due_inferred ? h("span", { class: "mt slack-inferred", title: "No deadline in the message: set to the next working day" }, "Deadline inferred") : null,
+      sl.source_deleted ? h("span", { class: "arch-label" }, "Slack message deleted") : null];
+  }
   function unitCard(u: any) {
     const t = u.task;
     const done = u.status === "done";
@@ -190,7 +199,8 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
           u.date && !done ? h("span", { class: u.overdue ? "od" : "mt" }, `${u.kind === "occurrence" ? "For" : "Due"} ${fmtDate(u.date)}`) : null,
           done ? h("span", { class: "mt" }, u.kind === "occurrence" ? `Done for ${fmtDate(u.date)}` : `Done ${fmtDate(u.completed_on)}`) : null,
           done && u.completed_by && u.completed_by !== u.owner.name ? h("span", { class: "mt" }, `ticked by ${u.completed_by}`) : null,
-          u.completion_blocked === "too_far_ahead" ? h("span", { class: "mt too-early" }, blockedText(u)) : null)),
+          u.completion_blocked === "too_far_ahead" ? h("span", { class: "mt too-early" }, blockedText(u)) : null,
+          ...slackChips(t))),
       h("div", { class: "tc-actions" },
         t.can_edit ? h("button", { class: "ic-btn", title: "Edit", "aria-label": "Edit task", on: { click: () => openEdit(t.id) } }, "✎") : null,
         t.can_edit ? h("button", { class: "ic-btn del", title: "Delete", "aria-label": "Delete task", on: { click: () => del(t) } }, "✕") : null));
@@ -358,14 +368,14 @@ export async function tasksView(root: HTMLElement, ctx: Ctx) {
         t.brand ? h("span", { class: "b brand-badge" }, t.brand.name) : h("span", { class: "b brand-badge" }, "Unassigned brand"),
         t.schedule ? h("span", { class: "rc sched-detail" }, `↻ ${t.schedule} · from ${fmtDate(t.due_date)}${t.recurrence_until ? " until " + fmtDate(t.recurrence_until) : ""}`) : t.due_date ? h("span", { class: "mt" }, `Due ${fmtDate(t.due_date)}`) : null,
         t.closed ? h("span", { class: "arch-label" }, "Closed") : null,
-        h("span", { class: "mt" }, `Created ${fmtDate(t.operational_date)} by ${t.creator.name}`)),
+        h("span", { class: "mt" }, `Created ${fmtDate(t.operational_date)} by ${t.creator.name}`), ...slackChips(t)),
       t.note ? h("p", { class: "tn tn-full" }, t.note) : null,
       typeof d.plan_url === "string" && /^https:\/\//.test(d.plan_url) ? h("div", { class: "note-line plan-link" }, "From a marketing plan: ",
         h("a", { href: d.plan_url, target: "_blank", rel: "noopener noreferrer" }, "Open the plan in the Marketing Dashboard")) : null,
       d.assignments?.length > 1 ? h("div", { class: "note-line" }, "Ownership: " + d.assignments.map((a: any) => `${a.assignee_name}${a.archived ? " (archived)" : ""} ${a.effective_from ? "from " + fmtDate(a.effective_from) : "from the start"}`).join(" · ")) : null,
       occBox,
       h("div", { class: "pt" }, "History"),
-      h("div", null, ...d.history.map((x: any) => h("div", { class: "note-line" }, `${fmtTime(x.at)} · ${x.actor ?? "Import"} · ${x.action.replace(/_/g, " ")}`))),
+      h("div", null, ...d.history.map((x: any) => h("div", { class: "note-line" }, `${fmtTime(x.at)} · ${x.actor ?? (x.changes?.via === "slack" ? "Slack automation" : "Import")} · ${x.action.replace(/_/g, " ")}`))),
       h("div", { class: "row-end" }, t.can_edit ? h("button", { class: "btn-g", on: { click: () => openEdit(t.id) } }, "Edit") : null),
     ], { wide: true, onClose: () => { if (location.hash.startsWith("#/tasks/")) history.replaceState(null, "", "#/tasks"); } });
   }

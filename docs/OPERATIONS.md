@@ -82,6 +82,8 @@ Administrators open **Brands** to add, rename, recolor, archive, restore or (nev
 
 Dashboard reporting per brand is off by default; see [REPORTING_API.md](REPORTING_API.md).
 
+Slack task intake (tasks from @mentions, completion from the owner's replies) is off until an administrator creates its credential; see [SLACK_INTAKE.md](SLACK_INTAKE.md).
+
 ## 7. Deploy checklist
 
 1. `npm ci && npm test && npm run build && npm run check:public` (with `PRIVATE_TERMS_FILE`).
