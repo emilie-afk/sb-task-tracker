@@ -17,6 +17,7 @@ function signedOut(failed = false, confirmed = false) {
   document.title = "Task Tracker";
   for (const o of document.querySelectorAll(".overlay")) o.remove();      // dialogs from the old session
   replace(root, h("div", { class: "login-wrap" }, h("div", { class: "login-card" },
+    h("div", { class: "login-logo", role: "img", "aria-label": "Succulents Box" }),
     h("div", { class: "login-title" }, "Task Tracker"),
     confirmed ? h("div", { class: "ok", role: "status" }, "You are signed out.") : null,
     h("div", { class: "login-sub" }, "Sign in with your approved Google account."),
