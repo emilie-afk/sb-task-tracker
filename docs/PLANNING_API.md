@@ -18,6 +18,7 @@ A scoped, server-to-server operation that lets the Marketing Dashboard create th
 | `POST /api/planning/v1/tasks` | Create one assigned task (idempotent, below). |
 | `GET /api/planning/v1/tasks?keys=<k1>,<k2>` | Current state of up to 100 tasks created from plans, by assignment id. |
 | `PATCH /api/planning/v1/tasks/<key>/due-date` | `{ due_date, expected_version }`: change the due date only if the task's version still matches; `409 conflict` (with the current task in `error.details.task`) otherwise. |
+| `POST /api/planning/v1/slack-links` | `{ idempotency_key, plan_id, origin?, source_workflow?, slack_sources }`: links a dashboard item still waiting for review to the task the Slack intake already created for the same Slack request (below). Never creates a task. Answers `{ linked: true, task }` or `{ linked: false, reason: not_found | ambiguous | not_linkable }`. |
 | `POST /api/planning/v1/tasks/<key>/complete` | `{}`: marks a one-time task done with the task editor's rules, as the acting administrator (date: today, Vietnam time). Repeating it keeps the first completion. A repeating task answers `409 recurring` (complete its occurrences in Task Tracker); an unknown or deleted task `404`. Used by the dashboard's Resolve. |
 
 ### Creating a task
@@ -34,7 +35,8 @@ POST /api/planning/v1/tasks
 - As an extra guard, a request more than 60 seconds old (or 60 seconds ahead) by the handling instance's clock is also refused with `409 stale_request`; that check runs under the key's lock too.
 - The brief becomes the task's note (max 2,000 characters). The task is a one-time ad hoc task created by the acting administrator; its history shows `created` and `linked_to_plan`.
 - `origin` (optional): `"plan"` (default) or `"review"`. A `review` task comes from the dashboard's private Slack Review queue: `plan_id` is then the suggestion's id, the task's history shows only `created` (no `linked_to_plan`), and task responses carry no plan link. Nothing else differs: same key, fence, validation and idempotency rules. Requires migration `004_task_origin.sql`.
-- Errors: `400` invalid fields · `401` wrong key · `409 key_in_use` · `422 brand_not_allowed` · `422 unknown_person | archived_person | management_role | assignee_lacks_brand_access` · `503 planning_disabled`.
+- `slack_sources` (optional, up to 10) and `source_workflow` (`review` | `corporate` | `plan`): the Slack request(s) the item comes from, as identity only (`channel_id`, `message_ts`, and `action_id`: the request's number within the message, `a1`, `a2`, …; never text or links). Under the message's lock (shared with the Slack intake): if a task already holds the same numbered request, it is **linked** to the key instead of creating a second one (`200`, `created: false`, `linked: true`); if it cannot be linked (linked to another dashboard item, or a brand outside the credential) → `409 already_in_tracker`; a source without a number on a message that already has tasks → `409 needs_review`. Both refusals carry `task_exists: false` for the key. A created task claims its requests. See `docs/SLACK_INTAKE.md`, "One Slack request, one task".
+- Errors: `400` invalid fields · `401` wrong key · `409 key_in_use` · `409 already_in_tracker` · `422 brand_not_allowed` · `422 unknown_person | archived_person | management_role | assignee_lacks_brand_access` · `503 planning_disabled`.
 
 Task responses: `{ idempotency_key, plan_id, task_id, title, due_date, status: open|done|deleted, completed_on, recurring, brand: {id, name}, assignee: {id, name}, version, updated_at, open_url }`.
 
